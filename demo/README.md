@@ -31,3 +31,6 @@ python demo/tools/serve.py --port 8090                          # http://127.0.0
 - **Speed** (laptop GPU, int8): one decoding step ~95 ms at 250 rows; 4 s of speech in ~5 s at 32 steps.
 - **Voices**: synthetic presets made with OmniVoice voice design (best of 12 takes by ASR CER and UTMOS),
   voice description, or a random voice. Cloning from your own recording is not implemented yet.
+- **Laptops with two GPUs**: on Windows the browser picks the GPU itself (it ignores WebGPU's
+  `powerPreference`), often the integrated one, which was about 3× slower here. Choosing "High performance"
+  for the browser under Windows Settings → System → Display → Graphics makes it use the dedicated GPU.

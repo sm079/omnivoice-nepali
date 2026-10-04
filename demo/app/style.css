@@ -417,3 +417,10 @@ dialog::backdrop { background: rgba(8, 6, 12, 0.6); backdrop-filter: blur(3px); 
   .rail { gap: 10px; }
   .rail .group { gap: 6px; }
 }
+
+/* keep Speak in view while the rail scrolls; voice-mode buttons size to their labels */
+.go-row { position: sticky; bottom: -16px; margin-bottom: -16px; padding: 10px 0 16px; background: var(--panel); z-index: 1; }
+.seg.small button { flex: none; overflow: visible; }
+.group.grow { min-height: 130px; }
+textarea { min-height: 80px; }
+@media (max-width: 900px) { .go-row { bottom: 0; margin-bottom: 0; padding-bottom: 0; } }
