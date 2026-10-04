@@ -15,6 +15,9 @@ uv run nepvoice merge models/run1 --out merged/run1                     # standa
 Every step caches its output, so an interrupted run resumes and changed settings redo only
 what they affect.
 
+Trained LoRA adapters: [sm079/omnivoice-nepali-lora](https://huggingface.co/sm079/omnivoice-nepali-lora)
+(its model card shows how to merge one into a standalone model).
+
 ## Input
 
 Recordings paired by name with a transcript; subfolders are kept in the output.
