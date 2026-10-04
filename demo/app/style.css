@@ -1,3 +1,4 @@
+@charset "utf-8";
 :root {
   --bg: #0d0f16;
   --bg-2: #131622;
@@ -229,7 +230,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var
 .go-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; margin-top: auto; flex: none; }
 .go-row .primary { height: 46px; gap: 8px; padding: 0 14px; }
 .go-sub { font-size: 12px; font-weight: 500; opacity: 0.75; }
-.go-sub::before { content: "· "; }
+.go-sub::before { content: "\00b7  "; } /* middle dot, escaped so the file stays ASCII */
 .go-sub:empty { display: none; }
 .stop { width: 46px; height: 46px; color: var(--bad); }
 .stop svg { width: 14px; height: 14px; }
