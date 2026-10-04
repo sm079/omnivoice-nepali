@@ -659,7 +659,7 @@ function drawWave() {
   if (!current || cv.offsetParent === null) return;
   const dpr = devicePixelRatio || 1;
   const w = cv.clientWidth, h = cv.clientHeight;
-  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
   const g = cv.getContext("2d");
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
@@ -1038,7 +1038,7 @@ async function main() {
     audioEl.currentTime = ((e.clientX - r.left) / r.width) * (current.audio.length / current.sampleRate);
     drawWave();
   };
-  addEventListener("resize", drawWave);
+  new ResizeObserver(drawWave).observe($("wave"));
   document.addEventListener("click", (e) => { if (!$("advPop").hidden && !$("advPop").contains(e.target)) closePopover(); });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closePopover();
