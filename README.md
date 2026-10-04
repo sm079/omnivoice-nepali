@@ -17,7 +17,8 @@ what they affect.
 
 Trained LoRA adapters: [sm079/omnivoice-nepali-lora](https://huggingface.co/sm079/omnivoice-nepali-lora)
 (its model card shows how to merge one into a standalone model).
-A browser demo that runs them on WebGPU is in [`demo/`](demo/README.md).
+A browser demo that runs them on WebGPU is in [`demo/`](demo/README.md), live at
+<https://sm079.github.io/omnivoice-nepali/>.
 
 ## Input
 

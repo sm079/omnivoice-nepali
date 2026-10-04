@@ -1,7 +1,10 @@
 # Omnivoice Nepali Web Demo
 
 Nepali text-to-speech with [OmniVoice](https://huggingface.co/k2-fsa/OmniVoice) running entirely in
-the browser on WebGPU (hand-written WGSL kernels, no ONNX runtime). Three models:
+the browser on WebGPU (hand-written WGSL kernels, no ONNX runtime).
+
+**Try it: <https://sm079.github.io/omnivoice-nepali/>** (needs a browser with WebGPU, e.g. recent
+Chrome or Edge). Three models:
 
 | model | what it is |
 |---|---|
@@ -13,12 +16,16 @@ The adapters are not shipped as merged models: the app downloads the PEFT adapte
 ConvRot-rotated space, merged and requantized per row). Switching models reloads the backbone from
 the browser cache and merges the other adapter (a few seconds).
 
+The page loads its converted weights from `web/` in the adapter repo, pinned to one commit in
+`app/main.js`. To build them yourself and serve them locally, open the page with
+`?models=./models/`:
+
 ```bash
 python demo/tools/build_assets.py --adapter run1=local/models/run1/adapter_model.safetensors \
   --adapter run2=local/models/run2/adapter_model.safetensors   # -> demo/models/
 python demo/tools/build_voices.py                              # synthetic preset voices
 uv run --with onnx python demo/tools/build_asr.py              # Nepali ASR for cloning (gated model)
-python demo/tools/serve.py --port 8090                          # http://127.0.0.1:8090/
+python demo/tools/serve.py --port 8090                          # http://127.0.0.1:8090/?models=./models/
 ```
 
 - **Downloads**: backbone bf16 (1.2 GB) or int8 + ConvRot (600 MB), codec decoder 47 MB, adapters 103 MB each,

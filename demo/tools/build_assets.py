@@ -257,7 +257,9 @@ def main() -> None:
         help="local PEFT adapter, copied to adapters/NAME.safetensors",
     )
     ap.add_argument(
-        "--adapter-repo", metavar="REPO@REV", help="Hub repo with <name>.safetensors adapters (linked, not copied)"
+        "--adapter-repo",
+        metavar="REPO@REV",
+        help="Hub repo with one PEFT folder per adapter, <name>/adapter_model.safetensors (linked, not copied)",
     )
     args = ap.parse_args()
 
@@ -313,10 +315,10 @@ def main() -> None:
 
         repo, rev = args.adapter_repo.split("@")
         info = HfApi().model_info(repo, revision=rev, files_metadata=True)
-        cfg = json.load(open(hf_hub_download(repo, "adapter_config.json", revision=rev)))
         for s in info.siblings:
-            if s.rfilename.endswith(".safetensors"):
-                name = s.rfilename[: -len(".safetensors")]
+            name, _, fn = s.rfilename.partition("/")
+            if fn == "adapter_model.safetensors":
+                cfg = json.load(open(hf_hub_download(repo, f"{name}/adapter_config.json", revision=info.sha)))
                 url = f"https://huggingface.co/{repo}/resolve/{info.sha}/{s.rfilename}"
                 models.append(adapter_entry(name, url, s.size, cfg))
     if len(models) > 1 or "models" not in manifest:
