@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nepali Voice</title>
+<meta name="description" content="Nepali text-to-speech with OmniVoice and Nepali fine-tunes, running entirely in your browser on WebGPU.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23d62f4b'/%3E%3Cpath d='M8 17h4l2-6 4 12 2-6h4' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">न</span>
+      <span class="name">Nepali <b>Voice</b></span>
+    </div>
+    <div class="status" id="status" role="status" aria-live="polite">
+      <span class="dot" id="statusDot"></span><span id="statusText">Starting…</span>
+    </div>
+    <div class="bar-right">
+      <button class="chip" id="gpuChip" type="button" hidden aria-label="Download size, opens settings"></button>
+      <button class="icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <aside class="rail" aria-label="Speech settings">
+    <section class="group grow">
+      <div class="label-row">
+        <label for="text" class="label">What should it say?</label>
+        <span class="head-actions"><button class="link" id="exampleBtn" type="button">Example</button></span>
+      </div>
+      <textarea id="text" lang="ne" spellcheck="false" placeholder="यहाँ नेपालीमा लेख्नुहोस्…"></textarea>
+      <span class="hint" id="textHint"></span>
+    </section>
+
+    <section class="group">
+      <span class="label">Model</span>
+      <div class="models" id="models" role="radiogroup" aria-label="Model"></div>
+    </section>
+
+    <section class="group">
+      <div class="label-row">
+        <span class="label">Voice</span>
+        <div class="seg small" id="voiceMode" role="radiogroup" aria-label="Voice source"></div>
+      </div>
+      <div class="voices" id="voices" role="radiogroup" aria-label="Preset voice"></div>
+      <div class="design" id="design" hidden>
+        <select id="dGender" aria-label="Gender"><option value="female">Female</option><option value="male">Male</option></select>
+        <select id="dAge" aria-label="Age"><option value="child">Child</option><option value="teenager">Teenager</option><option value="young adult" selected>Young adult</option><option value="middle-aged">Middle-aged</option><option value="elderly">Elderly</option></select>
+        <select id="dPitch" aria-label="Pitch"><option value="very low pitch">Very low</option><option value="low pitch">Low</option><option value="moderate pitch" selected>Medium pitch</option><option value="high pitch">High</option><option value="very high pitch">Very high</option></select>
+      </div>
+      <p class="help" id="voiceHelp"></p>
+    </section>
+
+    <section class="group">
+      <span class="label">Delivery</span>
+      <div class="pair">
+        <div class="seg" id="speed" role="radiogroup" aria-label="Speed"></div>
+        <div class="seg" id="quality" role="radiogroup" aria-label="Quality"></div>
+      </div>
+      <div class="chips" id="advChips" aria-label="Decoding details"></div>
+    </section>
+
+    <section class="group">
+      <div class="label-row">
+        <label class="label" for="seed">Seed</label>
+        <button class="pill" id="randomBtn" type="button" aria-pressed="true" title="Pick a new random seed for every clip">⤨ New each time</button>
+      </div>
+      <div class="seed-row">
+        <input id="seed" inputmode="numeric" autocomplete="off">
+        <button class="icon-btn soft" id="rollBtn" type="button" title="Roll a new seed (and keep it)" aria-label="Roll a new seed">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><circle cx="8.5" cy="8.5" r="1.3" class="fill"/><circle cx="15.5" cy="15.5" r="1.3" class="fill"/><circle cx="15.5" cy="8.5" r="1.3" class="fill"/><circle cx="8.5" cy="15.5" r="1.3" class="fill"/><circle cx="12" cy="12" r="1.3" class="fill"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <div class="go-row">
+      <button class="primary" id="goBtn" disabled><span id="goLabel">Speak</span><span class="go-sub" id="estimate"></span></button>
+      <button class="ghost compare" id="compareBtn" type="button" disabled title="Say it with all three models (same voice and seed) to compare them">Compare models</button>
+      <button class="icon-btn stop" id="stopBtn" type="button" hidden title="Stop and clear the queue" aria-label="Stop and clear the queue">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" class="fill"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main class="stage" aria-label="Result">
+    <div class="viewer" id="viewer">
+      <div class="panel-center" id="welcome" hidden>
+        <h1>Nepali speech, made on your own device</h1>
+        <p class="lead">OmniVoice and its Nepali fine-tunes run entirely in this browser. Your text never leaves your computer. Pick a download to get started. It's saved, so you only download it once.</p>
+        <div class="presets" id="welcomePresets"></div>
+        <div class="welcome-token">
+          <label class="label" for="welcomeToken">Hugging Face token <em>optional</em></label>
+          <div class="url-row">
+            <input id="welcomeToken" type="password" autocomplete="off" spellcheck="false" placeholder="hf_…">
+            <a class="ghost" href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">Get one ↗</a>
+          </div>
+          <p class="help" id="welcomeTokenStatus"></p>
+        </div>
+        <button class="primary wide" id="welcomeGo">Download &amp; start</button>
+        <p class="help center" id="welcomeNote"></p>
+      </div>
+
+      <div class="panel-center" id="loading" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <h2 id="loadingTitle">Getting ready…</h2>
+        <div class="bar-progress"><div id="loadingBar"></div></div>
+        <p class="help center" id="loadingText"></p>
+        <button class="ghost" id="loadingCancel" hidden>Cancel download</button>
+      </div>
+
+      <div class="panel-center" id="empty" hidden>
+        <div class="empty-art" aria-hidden="true">
+          <svg viewBox="0 0 132 104">
+            <rect class="frame" x="10" y="14" width="100" height="78" rx="12"/>
+            <path class="wave" d="M22 53h10l6-16 8 32 8-24 7 16 6-10 7 18 8-28 6 12h12"/>
+            <path class="spark" d="M112 10v14M105 17h14M122 34v8M118 38h8M24 4v8M20 8h8"/>
+          </svg>
+        </div>
+        <h2>Ready when you are</h2>
+        <p class="lead">Write something in Nepali on the left and press <b>Speak</b>.</p>
+      </div>
+
+      <div class="player" id="player" hidden>
+        <p class="said" id="said" lang="ne"></p>
+        <div class="wave-box">
+          <button class="play" id="playBtn" type="button" aria-label="Play">
+            <svg viewBox="0 0 24 24" id="playIcon"><path d="M8 5.5v13l10.5-6.5z" class="fill"/></svg>
+          </button>
+          <canvas id="wave" height="120"></canvas>
+          <span class="time" id="time"></span>
+        </div>
+        <div class="info" id="info"></div>
+      </div>
+
+      <div class="progress-card" id="progress" hidden>
+        <div class="bar-progress"><div id="progressBar"></div></div>
+        <span id="progressText"></span>
+      </div>
+
+      <div class="error-card" id="errorCard" hidden></div>
+    </div>
+
+    <div class="session" id="session" hidden>
+      <div class="label-row">
+        <span class="label">This session</span>
+        <span class="help">Kept until you close the tab. Download the ones you want.</span>
+      </div>
+      <ol class="clips" id="clips"></ol>
+    </div>
+  </main>
+</div>
+
+<div class="popover" id="advPop" hidden role="dialog" aria-label="Edit decoding detail"></div>
+
+<dialog id="settings" aria-labelledby="settingsTitle">
+  <form method="dialog" class="dialog">
+    <div class="dialog-head">
+      <h2 id="settingsTitle">Settings</h2>
+      <button class="icon-btn" value="close" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <span class="label">Download size &amp; quality</span>
+    <div class="presets" id="presets"></div>
+    <div class="field">
+      <span class="label">Hugging Face token <em class="muted">optional</em></span>
+      <div class="url-row">
+        <input id="hfToken" type="password" autocomplete="off" spellcheck="false" placeholder="hf_…">
+        <button class="ghost" type="button" id="keyToggle">Show</button>
+      </div>
+      <p class="help">Used for model downloads from Hugging Face (signed-in downloads get higher limits, and private repos need one). Create a <b>read</b> token under <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">Hugging Face settings → Access Tokens</a>. It's stored only in this browser and sent only to Hugging Face.</p>
+    </div>
+    <div class="storage">
+      <div><span class="label">Saved in this browser</span><p class="help" id="storageText"></p></div>
+      <div class="storage-actions"><button class="ghost danger" type="button" id="clearBtn">Remove downloads</button></div>
+    </div>
+    <p class="help">Models: <a href="https://huggingface.co/k2-fsa/OmniVoice" target="_blank" rel="noopener">OmniVoice by k2-fsa</a> (Apache-2.0) and the <a id="loraLink" href="https://huggingface.co/sm079/omnivoice-nepali-lora" target="_blank" rel="noopener">Nepali LoRA adapters</a>. Preset voices are synthetic: designed with OmniVoice, not recorded from anyone.</p>
+  </form>
+</dialog>
+
+<div class="fatal" id="fatal" hidden></div>
+<script type="module" src="app/main.js"></script>
+</body>
+</html>
