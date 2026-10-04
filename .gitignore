@@ -12,6 +12,7 @@ dataset/
 models/
 bench/
 work*/
+!/.github/workflows/
 studio/
 *.wav
 *.flac
@@ -37,3 +38,6 @@ studio/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Demo build outputs and reference dumps
+demo/out/
