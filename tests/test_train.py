@@ -111,7 +111,8 @@ def test_package_keeps_the_adapters_and_deletes_scratch(tmp_path: Path):
         ckpt.mkdir(parents=True)
         (ckpt / "adapter_model.safetensors").write_bytes(str(step).encode())
         (ckpt / "optimizer.bin").write_bytes(b"state")
-        (ckpt / "adapter_config.json").write_text(json.dumps({"r": 16, "base_model_name_or_path": cache}))
+        (ckpt / "adapter_config.json").write_text(json.dumps({"r": 16, "base_model_name_or_path": cache,
+                                                              "task_type": None}))
     paths.manifests.mkdir(parents=True)
 
     cfg = config.load().train

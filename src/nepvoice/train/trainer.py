@@ -229,6 +229,8 @@ def package(cfg: TrainConfig, paths: TrainPaths, eval_results: dict[str, float] 
     adapter_cfg["base_model_name_or_path"] = base
     if revision:
         adapter_cfg["revision"] = revision
+    if adapter_cfg.get("task_type") is None:  # OmniVoice has none; the Hub rejects null (PEFT's default anyway)
+        adapter_cfg.pop("task_type", None)
     paths.adapter_config.write_text(json.dumps(adapter_cfg, indent=2) + "\n", encoding="utf-8")
     if eval_results:
         paths.eval_file.write_text(json.dumps(eval_results, indent=2), encoding="utf-8")
