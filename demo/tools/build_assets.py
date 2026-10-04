@@ -49,8 +49,8 @@ UPSAMPLE = [8, 5, 4, 2, 3]
 
 MODEL_LABELS = {
     "base": ("Base", "OmniVoice as released, without Nepali fine-tuning."),
-    "run1": ("More natural v1", "Fine-tuned on single-speaker Nepali speech (run 1)."),
-    "run2": ("More natural v2", "Fine-tuned on more Nepali speakers (run 2)."),
+    "run1": ("More natural v1", "Fine-tuned on Nepali speech (run 1)."),
+    "run2": ("More natural v2", "Fine-tuned on Nepali speech (run 2)."),
 }
 
 
