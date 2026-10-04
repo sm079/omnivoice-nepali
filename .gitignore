@@ -12,6 +12,7 @@ dataset/
 models/
 bench/
 work*/
+!/.github/workflows/
 studio/
 *.wav
 *.flac
