@@ -797,7 +797,7 @@ function cloneRender() {
   $("recBtn").disabled = clone.busy;
   const asr = manifest.asr?.int8;
   $("transcribeBtn").hidden = !asr;
-  if (asr) $("transcribeBtn").textContent = cached.get(asr.path) !== asr.size ? `Transcribe automatically (${fmtGB(asr.size)} download)` : "Transcribe automatically";
+  if (asr) $("transcribeBtn").textContent = "Transcribe again";
 }
 
 function openClone() {
@@ -850,8 +850,8 @@ async function useRecording(blob) {
     clone.busy = false;
     cloneRender();
     const asr = manifest.asr?.int8;
-    if (asr && (cached.get(asr.path) === asr.size || store.get("autoTranscribe", false))) await transcribeClone();
-    else $("cloneTextHelp").textContent = "Type what is said, or let the browser transcribe it.";
+    if (asr) await transcribeClone();
+    else $("cloneTextHelp").textContent = "Type exactly what is said in the recording.";
   } catch (e) {
     console.error(e);
     clone.busy = false;
@@ -866,7 +866,6 @@ async function transcribeClone() {
   cloneRender();
   try {
     await cloneStep("asr", "speech recognizer");
-    store.set("autoTranscribe", true);
     cloneStatus("Transcribing…");
     $("cloneText").value = await engine.transcribe(clone.wav);
     $("cloneTextHelp").textContent = "Check the transcript and fix any mistakes: the closer it is to what's said, the better the clone.";
