@@ -1,4 +1,4 @@
-# Nepali Voice: WebGPU demo
+# Omnivoice Nepali Web Demo
 
 Nepali text-to-speech with [OmniVoice](https://huggingface.co/k2-fsa/OmniVoice) running entirely in
 the browser on WebGPU (hand-written WGSL kernels, no ONNX runtime). Three models:

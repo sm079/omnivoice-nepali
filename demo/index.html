@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nepali Voice</title>
+<title>Omnivoice Nepali Web Demo</title>
 <meta name="description" content="Nepali text-to-speech with OmniVoice and Nepali fine-tunes, running entirely in your browser on WebGPU.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23d62f4b'/%3E%3Cpath d='M8 17h4l2-6 4 12 2-6h4' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="app/style.css">
@@ -13,7 +13,7 @@
   <header class="bar">
     <div class="brand">
       <span class="logo" aria-hidden="true">न</span>
-      <span class="name">Nepali <b>Voice</b></span>
+      <span class="name">Omnivoice Nepali <b>Web Demo</b></span>
     </div>
     <div class="status" id="status" role="status" aria-live="polite">
       <span class="dot" id="statusDot"></span><span id="statusText">Starting…</span>
@@ -37,8 +37,11 @@
     </section>
 
     <section class="group">
-      <span class="label">Model</span>
-      <div class="models" id="models" role="radiogroup" aria-label="Model"></div>
+      <div class="label-row">
+        <span class="label">Model</span>
+        <div class="seg small" id="models" role="radiogroup" aria-label="Model"></div>
+      </div>
+      <p class="help" id="modelHelp"></p>
     </section>
 
     <section class="group">
@@ -79,7 +82,6 @@
 
     <div class="go-row">
       <button class="primary" id="goBtn" disabled><span id="goLabel">Speak</span><span class="go-sub" id="estimate"></span></button>
-      <button class="ghost compare" id="compareBtn" type="button" disabled title="Say it with all three models (same voice and seed) to compare them">Compare models</button>
       <button class="icon-btn stop" id="stopBtn" type="button" hidden title="Stop and clear the queue" aria-label="Stop and clear the queue">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" class="fill"/></svg>
       </button>

@@ -154,19 +154,13 @@ const filesFor = (sel) => resolveFiles(BASE, manifest, { precision: sel.precisio
 const missingBytes = (sel) => Object.values(filesFor(sel)).reduce((a, f) => a + (cached.get(f.name) === f.size ? 0 : f.size), 0);
 
 function renderModels() {
-  const el = $("models");
-  el.innerHTML = "";
-  for (const m of manifest.models) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "model";
-    b.setAttribute("role", "radio");
-    b.setAttribute("aria-checked", String(m.id === ui.model));
-    const need = m.adapter && cached.get(m.adapter.cacheName) !== m.adapter.size ? `+${fmtGB(m.adapter.size)}` : "";
-    b.innerHTML = `<span class="radio"></span><b>${esc(m.label)}</b><span class="tag">${need}</span><small>${esc(m.desc || "")}</small>`;
-    b.onclick = () => { ui.model = m.id; saveUi(); renderControls(); };
-    el.append(b);
-  }
+  // compact: "More natural v2" -> "Natural v2"; the description goes in the help line below
+  const short = (m) => m.label.replace(/^More natural/i, "Natural");
+  radioGroup($("models"), manifest.models.map((m) => ({ ...m, label: short(m), tip: m.desc })),
+    (m) => m.id === ui.model, (m) => { ui.model = m.id; saveUi(); renderControls(); });
+  const m = modelInfo(ui.model);
+  const need = m.adapter && cached.get(m.adapter.cacheName) !== m.adapter.size ? ` · +${fmtGB(m.adapter.size)} download` : "";
+  $("modelHelp").textContent = (m.desc || "") + need;
 }
 
 function voiceById(id) {
@@ -376,7 +370,6 @@ function renderGo() {
   $("stopBtn").hidden = !busy;
   const ok = (phase === "ready" || busy) && $("text").value.trim().length > 0;
   $("goBtn").disabled = !ok;
-  $("compareBtn").disabled = !ok || manifest?.models.length < 2;
   if (busy) setStatus(jobs.length ? `Speaking… (${jobs.length} queued)` : "Speaking…", "busy");
 }
 
@@ -638,7 +631,7 @@ function select(clip, autoplay = false) {
   $("said").textContent = clip.text;
   const m = modelInfo(clip.model);
   $("info").innerHTML = `<span class="meta"><b>${esc(m.label)}</b><span class="sep">·</span>${esc(clip.voice.label)}<span class="sep">·</span>${clip.timings.seconds.toFixed(1)} s of speech<span class="sep">·</span>made in ${fmtTime(clip.timings.total)}<span class="sep">·</span>seed ${clip.seed}</span>
-    <span class="actions"><button type="button" id="reuseBtn" title="Put this clip's text, voice and seed back into the settings">${ICONS.reuse}<span>Reuse</span></button><a href="${clip.url}" download="nepali-voice-${clip.model}-${clip.seed}.wav">${ICONS.dl}<span>Download</span></a></span>`;
+    <span class="actions"><button type="button" id="reuseBtn" title="Put this clip's text, voice and seed back into the settings">${ICONS.reuse}<span>Reuse</span></button><a href="${clip.url}" download="omnivoice-nepali-${clip.model}-${clip.seed}.wav">${ICONS.dl}<span>Download</span></a></span>`;
   $("reuseBtn").onclick = () => reuse(clip);
   drawWave();
   if (autoplay) { previewing = null; audioEl.src = clip.url; audioEl.play().catch(() => {}); }
@@ -1014,10 +1007,6 @@ async function main() {
   $("randomBtn").onclick = () => setRandom(!pressed("randomBtn"));
   $("rollBtn").onclick = () => { $("seed").value = newSeed(); store.set("seed", $("seed").value); setRandom(false); };
   $("goBtn").onclick = () => enqueue([makeJob(ui.model, nextSeed())]);
-  $("compareBtn").onclick = () => {
-    const seed = nextSeed();
-    enqueue(manifest.models.map((m) => makeJob(m.id, seed)));
-  };
   $("stopBtn").onclick = stopAll;
   $("loadingCancel").onclick = () => loadAbort?.abort();
   $("settingsBtn").onclick = openSettings;
