@@ -1,0 +1,78 @@
+[project]
+name = "nepvoice"
+version = "0.1.0"
+description = "Nepali TTS fine-tuning: overlap-free single-speaker clips from long recordings, then LoRA training of OmniVoice"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch>=2.7",
+    "torchaudio>=2.7",
+    "transformers",
+    "accelerate",
+    "huggingface-hub",
+    "numpy",
+    "scipy",
+    "soundfile",
+    "librosa>=1.0.0",
+    "pyloudnorm>=0.1.1",
+    "tqdm",
+    # overlap detection (DiariZen) and the pyannote fork it is built on
+    "diarizen",
+    "pyannote-audio",
+    "speechbrain",
+    # training
+    "omnivoice[lora]",
+    "peft>=0.20.0",
+    "tensorboard",
+]
+
+[project.optional-dependencies]
+# Web UIs and benchmarks under tools/
+tools = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+    # IndicConformer ASR. 1.23+ rejects the model's external weights when they sit in the
+    # Hugging Face cache's blob folder, and 1.30+ needs CUDA 13.
+    "onnxruntime-gpu>=1.20,<1.23",
+    "s3prl>=0.4.18",
+]
+
+[project.scripts]
+nepvoice = "nepvoice.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=9", "httpx"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nepvoice"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+# Nemotron-3-Diarization needs a transformers build newer than the last release.
+transformers = { git = "https://github.com/huggingface/transformers", rev = "35924ec379eec682bbdca219886e16eff4df8b09" }
+diarizen = { git = "https://github.com/BUTSpeechFIT/DiariZen", rev = "844f5555b0a98acd0931511fc641a8c5b8ba92c7" }
+pyannote-audio = { git = "https://github.com/BUTSpeechFIT/DiariZen", subdirectory = "pyannote-audio", rev = "844f5555b0a98acd0931511fc641a8c5b8ba92c7" }
+omnivoice = { git = "https://github.com/k2-fsa/OmniVoice", rev = "08be0b4" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]

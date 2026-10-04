@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Voice Studio · Nepali</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><rect x="3" y="12" width="3" height="8" rx="1.5"/><rect x="9" y="7" width="3" height="18" rx="1.5"/><rect x="15" y="3" width="3" height="26" rx="1.5"/><rect x="21" y="9" width="3" height="14" rx="1.5"/><rect x="27" y="13" width="3" height="6" rx="1.5"/></svg>
+      </div>
+      <div>
+        <div class="brand-title">Voice Studio</div>
+        <div class="brand-sub">OmniVoice · Nepali · model comparison</div>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-page="compare" role="tab">Compare</button>
+      <button class="tab" data-page="bench" role="tab">Benchmark</button>
+      <button class="tab" data-page="history" role="tab">History</button>
+    </nav>
+    <div class="top-right">
+      <span id="status" class="status loading"><span class="dot"></span><span class="label">Loading models…</span></span>
+      <button id="theme" class="icon-btn" title="Toggle light/dark" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ======================== COMPARE ======================== -->
+  <main id="page-compare" class="page active">
+    <section class="col-left">
+      <div class="card">
+        <div class="card-head">
+          <h2><span class="step">1</span> Voice</h2>
+          <div class="seg" id="voice-mode">
+            <button class="seg-btn active" data-mode="library">Library</button>
+            <button class="seg-btn" data-mode="upload">Upload</button>
+            <button class="seg-btn" data-mode="record">Record</button>
+          </div>
+        </div>
+
+        <div class="voice-pane" data-pane="library">
+          <div class="chips" id="lib-filters">
+            <button class="chip active" data-f="all">All</button>
+            <button class="chip" data-f="unseen">Unseen</button>
+            <button class="chip" data-f="seen">In training</button>
+            <button class="chip" data-f="female">Female</button>
+            <button class="chip" data-f="male">Male</button>
+          </div>
+          <p class="hint">Held-out recordings. <b>Unseen</b> voices were never in any model's fine-tuning data — the real test of cloning.</p>
+          <div class="lib-list" id="lib-list"></div>
+        </div>
+
+        <div class="voice-pane hidden" data-pane="upload">
+          <label class="dropzone" id="dropzone">
+            <input type="file" id="file-input" accept="audio/*" hidden>
+            <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+            <div><b>Drop an audio file</b> or click to browse</div>
+            <div class="hint">wav · mp3 · flac · m4a — one speaker, ideally 5–15 s. Longer clips are trimmed at a pause.</div>
+          </label>
+        </div>
+
+        <div class="voice-pane hidden" data-pane="record">
+          <div class="recorder">
+            <button class="rec-btn" id="rec-btn" aria-label="Record"><span></span></button>
+            <div>
+              <div class="rec-time" id="rec-time">0:00</div>
+              <div class="hint" id="rec-hint">Click to record 5–15 s of clear speech.</div>
+            </div>
+            <canvas class="rec-meter" id="rec-meter" width="160" height="36"></canvas>
+          </div>
+        </div>
+
+        <div class="reference" id="reference">
+          <div class="ref-empty">Choose a voice to clone.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="col-right">
+      <div class="card">
+        <div class="card-head">
+          <h2><span class="step">2</span> Script</h2>
+          <span class="hint" id="char-count">0 characters</span>
+        </div>
+        <textarea id="text" class="np script" rows="3" placeholder="नेपालीमा केही लेख्नुहोस्…"></textarea>
+        <div class="chips presets" id="presets"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2><span class="step">3</span> Models</h2>
+        </div>
+        <div class="model-toggles" id="model-toggles"></div>
+        <div class="options">
+          <label class="field">
+            <span>Seed</span>
+            <div class="seed">
+              <input type="number" id="seed" value="0" min="0">
+              <button class="icon-btn small" id="dice" title="Random seed" aria-label="Random seed">
+                <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.2"/><circle cx="15" cy="15" r="1.2"/><circle cx="15" cy="9" r="1.2"/><circle cx="9" cy="15" r="1.2"/></svg>
+              </button>
+            </div>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="blind">
+            <span class="track"><span class="thumb"></span></span>
+            <span><b>Blind test</b><br><span class="hint">Hide model names until you pick the best</span></span>
+          </label>
+        </div>
+        <button class="generate" id="generate" disabled>
+          <span class="gen-label">Generate</span>
+          <span class="spinner"></span>
+        </button>
+        <div class="error" id="gen-error" hidden></div>
+      </div>
+
+      <div id="results" class="results"></div>
+
+      <div class="card tally-card">
+        <div class="card-head">
+          <h2>Blind preference</h2>
+          <span class="hint" id="tally-rounds"></span>
+        </div>
+        <div id="tally" class="tally"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ======================== BENCHMARK ======================== -->
+  <main id="page-bench" class="page">
+    <div class="bench-wrap">
+      <div class="bench-intro card" id="bench-intro"></div>
+      <div class="bench-controls">
+        <div class="seg" id="bench-group"></div>
+      </div>
+      <div class="metric-grid" id="metric-grid"></div>
+      <div class="card">
+        <div class="card-head"><h2>Head-to-head vs. base</h2><span class="hint">Same sentence, same voice, same seed — paired differences with 95% intervals</span></div>
+        <div id="paired"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>Listen to the test set</h2>
+          <div class="chips" id="item-filters"></div>
+        </div>
+        <div id="items" class="items"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ======================== HISTORY ======================== -->
+  <main id="page-history" class="page">
+    <div class="history-wrap" id="history"></div>
+  </main>
+
+  <template id="tpl-player">
+    <div class="player">
+      <button class="play" aria-label="Play"><svg class="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="i-pause" viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg></button>
+      <div class="wave"><canvas></canvas></div>
+      <span class="time">0:00</span>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Segment Viewer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">nepvoice <span>segment viewer</span></div>
+    <select id="recording-select" aria-label="Recording"></select>
+    <div id="stats" class="stats"></div>
+  </header>
+
+  <section class="transport">
+    <button id="play" class="btn primary" title="Play / pause (Space)">▶</button>
+    <div class="time"><span id="cur">0:00.0</span> / <span id="dur">0:00</span></div>
+    <div class="seg-nav">
+      <button id="prev" class="btn" title="Previous segment (←)">⏮</button>
+      <button id="next" class="btn" title="Next segment (→)">⏭</button>
+    </div>
+    <label class="toggle" title="Play segments from their exported clip files: exactly what goes into the dataset">
+      <input type="checkbox" id="exact-clip" checked> play exported clip
+    </label>
+    <label class="toggle" title="When playing a segment from the full recording, stop at its end">
+      <input type="checkbox" id="stop-at-end" checked> stop at segment end
+    </label>
+    <label class="toggle" title="Continue with the next segment in the list">
+      <input type="checkbox" id="autoplay-next"> auto-advance
+    </label>
+    <div class="zoom">
+      <button id="zoom-out" class="btn" title="Zoom out (-)">−</button>
+      <button id="zoom-fit" class="btn" title="Show whole file (0)">fit</button>
+      <button id="zoom-in" class="btn" title="Zoom in (+)">+</button>
+    </div>
+  </section>
+
+  <main class="layout">
+    <section class="timeline-wrap">
+      <canvas id="overview" class="overview" aria-label="Whole-file overview"></canvas>
+      <div class="timeline-scroll">
+        <canvas id="timeline" aria-label="Timeline"></canvas>
+        <div id="tooltip" class="tooltip" hidden></div>
+      </div>
+      <div class="legend" id="legend"></div>
+      <p class="hint">Scroll to zoom · drag to pan · click to seek · click a kept segment to play it</p>
+    </section>
+
+    <aside class="panel">
+      <div class="tabs" id="tabs" role="tablist"></div>
+      <div class="list-bar">
+        <div class="list-meta" id="list-meta"></div>
+        <form id="jump-form" class="jump" autocomplete="off">
+          <label for="jump">Go to #</label>
+          <input id="jump" inputmode="numeric" placeholder="3" aria-label="Segment number">
+        </form>
+      </div>
+      <ol class="seg-list" id="seg-list"></ol>
+    </aside>
+  </main>
+
+  <audio id="audio" preload="auto"></audio>
+  <script src="app.js"></script>
+</body>
+</html>

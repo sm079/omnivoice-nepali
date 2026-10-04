@@ -1,0 +1,22 @@
+# A few minutes end to end, to check that a setup works before a real run:
+#   nepvoice run INPUT_DIR --work work-smoke --run run-smoke --config configs/smoke.toml
+
+[manifest]
+min_duration = 2.0
+dev_fraction = 0.5                # with two recordings, one is held out
+speaker_id = true
+
+[speakers]
+min_voiceprint_seconds = 5.0
+
+[train]
+tokenize_jobs_per_gpu = 1
+tokenize_loader_workers = 1
+
+[train.omnivoice]
+steps = 20
+warmup_ratio = 0.1
+logging_steps = 5
+eval_steps = 10
+save_steps = 10
+num_workers = 1                   # OmniVoice sets prefetch_factor, which needs a worker

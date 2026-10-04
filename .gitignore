@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Pipeline data and outputs: recordings, work/run/benchmark directories, model files
+dataset/
+models/
+bench/
+work*/
+studio/
+*.wav
+*.flac
+*.webm
+*.m4a
+*.opus
+*.mp3
+*.npy
+*.npz
+*.tar
+*.safetensors
+*.pt
+*.bin
+
+# Logs
+*.log
+
+# Secrets
+.env
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

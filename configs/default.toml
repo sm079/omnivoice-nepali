@@ -1,0 +1,123 @@
+# Every setting of the pipeline with its default value. Copy this file (or just the keys
+# you change) and pass it with --config; single values can also be set with
+# --set section.key=value. tests/test_config.py keeps this file in sync with the code.
+
+[ingest]
+recursive = true                  # also look for recordings in subfolders of the input folder
+
+[prep]
+cpu_workers = 3                   # parallel recordings in the select and export stages
+force = false                     # redo selection/export even when cached with the same settings
+keep_source_wav = false           # keep the full-rate WAV after export (re-decoded when needed)
+
+# Which audio counts as clean, single-speaker speech, and how it is cut into clips.
+[select]
+speech_threshold = 0.5            # P(speaking) above which a diarization frame is speech
+# A frame is foreign to the target speaker when ANY detector exceeds its threshold
+# ("off" disables a detector). Far below 0.5 on purpose: the goal is zero overlap.
+nemotron_other_threshold = 0.03   # strongest other Nemotron speaker
+diarizen_multi_threshold = 0.03   # DiariZen P(two or more speakers)
+diarizen_other_threshold = 0.03   # DiariZen local speaker not matched to the target
+pad = 0.3                         # seconds of safety margin around foreign frames
+min_duration = 2.0                # clip length range, seconds
+max_duration = 20.0
+split_pause = 0.2                 # gaps in the speaker's activity this long are cut points
+max_internal_pause = 1.0          # longest pause kept inside one clip
+edge_margin = 0.1                 # silence kept before the first and after the last word
+min_words = 1                     # transcript words a clip needs
+min_speaker_seconds = 30.0        # speakers with less speech never yield clips (still count as foreign)
+cut_mode = "acoustic"             # "acoustic": cut at pauses in the waveform; "speaker_gap": only at gaps in activity
+pause_db = -30.0                  # a pause is this far below the speech level ...
+min_pause = 0.15                  # ... for at least this long
+blur_max_duration = 0.2           # detector smear across a pause: fragment this short ...
+blur_max_strength = 8.0           # ... and at most this many times its threshold
+trim_breaths = false              # remove inhales at clip edges
+breath_silence_db = -30.0
+breath_dip_db = 8.0
+breath_min = 0.12
+breath_keep = 0.06
+
+# How clips are written.
+[export]
+sample_rate = 24000               # 0 keeps the source rate; OmniVoice's tokenizer works at 24 kHz
+peak_normalize = 0.9              # scale each clip's peak to this, as OmniVoice's data loader (0 = off)
+loudness_normalize = false        # instead: scale each clip to loudness_lufs (ITU-R BS.1770)
+loudness_lufs = -27.0
+peak_dbfs = -1.0                  # with loudness_normalize: true-peak ceiling, the gain stops here
+fade_ms = 0.0                     # raised-cosine fade at both ends
+pad_ms = 0.0                      # digital silence before and after each clip
+
+# Recognising the same person across recordings.
+[speakers]
+same_speaker_similarity = 0.8     # cosine similarity at which voiceprints are the same person
+clip_outlier_similarity = 0.3     # clips further from their voiceprint are left out of it
+min_voiceprint_seconds = 10.0     # speech a voiceprint needs to be matched across recordings
+
+# The prepared dataset.
+[manifest]
+min_duration = 3.0
+max_duration = 30.0
+dev_fraction = 0.02               # share of recordings held out whole as the dev set
+seed = 0
+max_hours_per_speaker = 0.0       # cap per person, spread over their recordings; 0 = no cap
+speaker_id = true                 # global speaker ids and voice classes (needed for female_repeat)
+
+# Per recording id, the only speakers to keep ("Speaker N" in the segment viewer), e.g.
+# "talk-01" = [2]. Recordings not listed keep every speaker.
+[manifest.only_speakers]
+
+[train]
+female_repeat = 2                 # oversample female voices (often a small share of the speech)
+gradient_checkpointing = true     # much less GPU memory; small GPUs run several times slower without it
+peak_normalize = true             # OmniVoice's per-clip peak normalisation when tokenizing (as upstream)
+tokenize_jobs_per_gpu = 2
+tokenize_loader_workers = 4
+evaluate = true                   # dev loss of the base model and every checkpoint
+eval_seed = 0
+final_checkpoint = "last"         # kept as adapter_model.safetensors: "last", "best" (lowest dev loss) or e.g. "checkpoint-2000"
+
+# OmniVoice TrainingConfig, passed through as is: its LoRA recipe, sized for a single small GPU
+# (2048 tokens x 4 accumulation steps = OmniVoice's 8192 tokens per step).
+[train.omnivoice]
+llm_name_or_path = "Qwen/Qwen3-0.6B"
+audio_vocab_size = 1025
+audio_mask_id = 1024
+num_audio_codebook = 8
+audio_codebook_weights = [8, 8, 6, 6, 4, 4, 2, 2]
+drop_cond_ratio = 0.1
+prompt_ratio_range = [0.0, 0.3]
+mask_ratio_range = [0.0, 1.0]
+language_ratio = 0.8
+use_pinyin_ratio = 0.0
+instruct_ratio = 0.0
+only_instruct_ratio = 0.0
+init_from_checkpoint = "k2-fsa/OmniVoice"
+use_lora = true
+lora_r = 16
+lora_alpha = 32
+lora_dropout = 0.05
+lora_bias = "none"
+lora_target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+lora_modules_to_save = ["audio_embeddings", "audio_heads"]
+learning_rate = 1e-4
+weight_decay = 0.01
+max_grad_norm = 1.0
+steps = 3000
+seed = 42
+lr_scheduler_type = "cosine"
+warmup_type = "ratio"
+warmup_ratio = 0.03
+warmup_steps = 0
+attn_implementation = "sdpa"
+max_sample_tokens = 2000
+min_sample_tokens = 50
+max_batch_size = 16
+batch_tokens = 2048
+gradient_accumulation_steps = 4
+num_workers = 2
+mixed_precision = "bf16"
+allow_tf32 = true
+logging_steps = 25
+eval_steps = 250
+save_steps = 500
+keep_last_n_checkpoints = -1
