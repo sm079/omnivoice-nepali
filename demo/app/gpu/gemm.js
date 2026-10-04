@@ -7,16 +7,19 @@
 //                   frame m*stride - pad + tap*dil, k = tap*cin + ci (zero outside [0, tin))
 //           "convT" one output phase z of a stride-s transposed conv (kernel 2s): output frame
 //                   m*s + z reads input frame m + (z + pad) / s - a, k = a*cin + ci
-//           snake: Snake activation x + sin(alpha x)^2 / alpha (alpha per input channel) applied
-//                  to every loaded A value (conv modes), fusing DAC's pre-conv activations
+//           Conv input rows are lda floats apart; group z of a grouped conv reads channels from
+//           z*aBatch (and writes columns from z*cBatch with weight rows from z*bz).
+//           pre: activation applied to every loaded A value (conv modes), fusing the activation
+//                that precedes a conv: "snake" x + sin(alpha x)^2 / alpha (alpha per input
+//                channel, DAC) or "elu".
 // B fmts  : "f32"   B[bOff + z/bDiv*bBatch + n*ldb + k]    ("f32t": B[... + k*ldb + n])
 //           "bf16"  [N,K] bf16 pairs packed in u32
 //           "i8"    [N,K] int8 packed 4 per u32            (per-row scale in epilogue)
 //           "w4"    [N,K] 4-bit codes packed 8 per u32, fp8-e4m3 group scale per 16,
 //                   16-entry codebook, decoded to the int8 grid (per-row scale in epilogue)
 //           Weight rows of batch z start at row z*bz (per-phase weights of a transposed conv).
-// Epilogue: *rowScale[n], +bias[n], act (gelu|silu|swiglu), then store or C += v (resid).
-//           swiglu: B rows interleave (gate_j, up_j); C[m][j] = silu(gate_j) * up_j, ldc = N/2.
+// Epilogue: *rowScale[n], +bias[n + z*zb], act (gelu|silu|relu|swiglu|glu), then store or C += v (resid).
+//           swiglu/glu: B rows interleave (a_j, b_j); C[m][j] = silu(a_j) * b_j or a_j * sigmoid(b_j), ldc = N/2.
 //
 // Tiles (256 threads, 16 KB of workgroup memory in both):
 //   R = 4: 64x64,   TK = 32, 4x4 outputs per thread  (small problems)
@@ -50,8 +53,10 @@ fn snake(x: f32, ci: u32) -> f32 {
   return x + s * s / (a + 1e-9);
 }`;
 
+const ELU = "fn elu(x: f32) -> f32 { return select(exp(x) - 1.0, x, x > 0.0); }";
+
 // Loaders return V8 { lo, hi }: 8 consecutive k values.
-function loaderA(a, vec, snake) {
+function loaderA(a, vec, pre) {
   if (a === "rows") {
     if (vec) {
       return `
@@ -73,28 +78,29 @@ fn loadA8(z: u32, m: u32, k: u32) -> V8 {
   const frame = a === "conv"
     ? "i32(m * P.stride + (k / P.cin) * P.dil) - i32(P.pad)"
     : "i32(m + (z + P.pad) / P.stride) - i32(k / P.cin)";
-  const sn = (v, c) => (snake ? `snake(${v}, ${c})` : v);
+  const sn = (v, c) => (pre === "snake" ? `snake(${v}, ${c})` : pre === "elu" ? `elu(${v})` : v);
+  const fns = pre === "snake" ? SNAKE : pre === "elu" ? ELU : "";
   if (vec) {
     // the 8 k share one tap (cin % 8 == 0)
-    return `${snake ? SNAKE : ""}
+    return `${fns}
 fn loadA8(z: u32, m: u32, k: u32) -> V8 {
   if (m >= P.M || k >= P.K) { return V8(); }
   let f = ${frame};
   if (f < 0 || f >= i32(P.tin)) { return V8(); }
   let ci = k % P.cin;
-  let q = (P.aOff + u32(f) * P.cin + ci) >> 2u;
+  let q = (P.aOff + u32(f) * P.lda + z * P.aBatch + ci) >> 2u;
   let a = A[q]; let b = A[q + 1u];
   return V8(vec4<f32>(${range(4).map((j) => sn(`a.${"xyzw"[j]}`, `ci + ${j}u`)).join(", ")}),
             vec4<f32>(${range(4).map((j) => sn(`b.${"xyzw"[j]}`, `ci + ${j + 4}u`)).join(", ")}));
 }`;
   }
-  return `${snake ? SNAKE : ""}
+  return `${fns}
 fn loadA1(z: u32, m: u32, k: u32) -> f32 {
   if (k >= P.K) { return 0.0; }
   let f = ${frame};
   if (f < 0 || f >= i32(P.tin)) { return 0.0; }
   let ci = k % P.cin;
-  return ${sn("A[P.aOff + u32(f) * P.cin + ci]", "ci")};
+  return ${sn("A[P.aOff + u32(f) * P.lda + z * P.aBatch + ci]", "ci")};
 }
 fn loadA8(z: u32, m: u32, k: u32) -> V8 {
   if (m >= P.M) { return V8(); }
@@ -188,8 +194,8 @@ fn loadB8(z: u32, n: u32, k: u32) -> V8 {
 
 // vecA / vecB: vectorized global loads; the caller guarantees K % 8 == 0 and 4-aligned offsets
 // and strides (for the weight formats: K % 8 == 0; conv modes: cin % 8 == 0).
-export function matmulShader({ a = "rows", b = "f32", bias = false, act = "none", resid = false, R = 8, vecA = false, vecB = false, snake = false }) {
-  const key = JSON.stringify([a, b, bias, act, resid, R, vecA, vecB, snake]);
+export function matmulShader({ a = "rows", b = "f32", bias = false, act = "none", resid = false, R = 8, vecA = false, vecB = false, pre = null }) {
+  const key = JSON.stringify([a, b, bias, act, resid, R, vecA, vecB, pre]);
   if (cache.has(key)) return cache.get(key);
 
   const scaled = b === "i8" || b === "w4";
@@ -205,13 +211,14 @@ export function matmulShader({ a = "rows", b = "f32", bias = false, act = "none"
   if (scaled) bind("var<storage, read> RS: array<f32>");
   if (b === "w4") { bind("var<storage, read> SR: array<u32>"); bind("var<storage, read> CB: array<f32>"); }
   if (bias) bind("var<storage, read> BIAS: array<f32>");
-  if (snake) bind("var<storage, read> ALPHA: array<f32>");
+  if (pre === "snake") bind("var<storage, read> ALPHA: array<f32>");
 
   // value of output (m, n) before the activation
-  const pre = (v, n) => `${v} * P.alpha${scaled ? ` * RS[${n}]` : ""}${bias ? ` + BIAS[${n}]` : ""}`;
+  const val = (v, n) => `${v} * P.alpha${scaled ? ` * RS[${n}]` : ""}${bias ? ` + BIAS[${n} + z * P.zb]` : ""}`;
   let epi = "";
   if (act === "gelu") epi = " r = gelu(r);";
   if (act === "silu") epi = " r = silu(r);";
+  if (act === "relu") epi = " r = max(r, 0.0);";
   const store = resid ? "C[ci] = C[ci] + r;" : "C[ci] = r;";
 
   const T = 16 * R; // tile edge
@@ -242,16 +249,16 @@ export function matmulShader({ a = "rows", b = "f32", bias = false, act = "none"
       out.push(`{ let m = m0 + ${g * 64 + i}u + tm * 4u;\n    if (m < P.M) {`);
       for (let h = 0; h < G; h++) {
         const acc = `acc${(g * 4 + i) * G + h}`;
-        if (act === "swiglu") {
+        if (act === "swiglu" || act === "glu") {
           // columns (n, n+1) = (gate_j, up_j) with j = n/2; N is even, so both are in range together
           for (const j of [0, 2]) {
             const [cg, cu] = ["xyzw"[j], "xyzw"[j + 1]];
             out.push(`      { let n = n0 + ${h * 64 + j}u + tn * 4u; if (n < P.N) { let ci = P.cOff + z * P.cBatch + m * P.ldc + n / 2u;` +
-              ` let g = ${pre(`${acc}.${cg}`, "n")}; let u = ${pre(`${acc}.${cu}`, "n + 1u")}; let r = silu(g) * u; ${store} } }`);
+              ` let g = ${val(`${acc}.${cg}`, "n")}; let u = ${val(`${acc}.${cu}`, "n + 1u")}; let r = ${act === "glu" ? "g / (1.0 + exp(-u))" : "silu(g) * u"}; ${store} } }`);
           }
         } else {
           for (let j = 0; j < 4; j++) {
-            out.push(`      { let n = n0 + ${h * 64 + j}u + tn * 4u; if (n < P.N) { let ci = P.cOff + z * P.cBatch + m * P.ldc + n; var r = ${pre(`${acc}.${"xyzw"[j]}`, "n")};${epi} ${store} } }`);
+            out.push(`      { let n = n0 + ${h * 64 + j}u + tn * 4u; if (n < P.N) { let ci = P.cOff + z * P.cBatch + m * P.ldc + n; var r = ${val(`${acc}.${"xyzw"[j]}`, "n")};${epi} ${store} } }`);
           }
         }
       }
@@ -266,12 +273,13 @@ struct Params {
   bBatch: u32, bDiv: u32, bOff: u32, ldc: u32,
   cBatch: u32, cOff: u32, bz: u32, cin: u32,
   tin: u32, stride: u32, dil: u32, pad: u32,
+  zb: u32, pad1: u32, pad2: u32, pad3: u32,
 };
 struct V8 { lo: vec4<f32>, hi: vec4<f32> };
 @group(0) @binding(0) var<uniform> P: Params;
 ${bindings.join("\n")}
 ${act !== "none" ? ACT : ""}
-${loaderA(a, vecA, snake)}
+${loaderA(a, vecA, pre)}
 ${loaderB(b, vecB)}
 
 const TK = ${TK}u;

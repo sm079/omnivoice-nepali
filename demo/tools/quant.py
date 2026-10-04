@@ -20,8 +20,22 @@ W4_GROUP = 16
 
 # Lloyd-Max-optimal 16 levels for a group-normalized Gaussian (comfy_kitchen _FIXED_LUT).
 FIXED_LUT = (
-    -0.980602, -0.794529, -0.638165, -0.500986, -0.377321, -0.263187, -0.155210, -0.050720,
-    0.052541, 0.156985, 0.265284, 0.379533, 0.502636, 0.638953, 0.794876, 0.980671,
+    -0.980602,
+    -0.794529,
+    -0.638165,
+    -0.500986,
+    -0.377321,
+    -0.263187,
+    -0.155210,
+    -0.050720,
+    0.052541,
+    0.156985,
+    0.265284,
+    0.379533,
+    0.502636,
+    0.638953,
+    0.794876,
+    0.980671,
 )
 _ALS_ITERS = 2
 _GATE_KURTOSIS = -0.1
@@ -56,6 +70,7 @@ def quant_meta(fmt: str, **extra) -> torch.Tensor:
 
 # ----------------------------------------------------------------------------- int8
 
+
 def quantize_int8_convrot(weight: torch.Tensor) -> dict[str, torch.Tensor]:
     rot = rotate(weight)
     scale = (rot.abs().amax(dim=1, keepdim=True) / 127.0).clamp(min=1e-30)
@@ -84,6 +99,7 @@ def dequantize_int8_convrot(t: dict[str, torch.Tensor]) -> torch.Tensor:
 
 
 # ----------------------------------------------------------------------------- w4a8
+
 
 def _assign_codes(normalized: torch.Tensor, codebook: torch.Tensor) -> torch.Tensor:
     last = codebook.numel() - 1

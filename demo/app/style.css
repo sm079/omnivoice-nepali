@@ -424,3 +424,29 @@ dialog::backdrop { background: rgba(8, 6, 12, 0.6); backdrop-filter: blur(3px); 
 .group.grow { min-height: 130px; }
 textarea { min-height: 80px; }
 @media (max-width: 900px) { .go-row { bottom: 0; margin-bottom: 0; padding-bottom: 0; } }
+
+/* ------------------------------------------------------------------ voice cloning */
+.voice.add { align-items: center; justify-content: center; border-style: dashed; color: var(--muted); font-size: 12px; }
+.voice.add:hover { color: var(--fg); }
+.voice .x { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; display: none; place-items: center; background: transparent; color: var(--faint); }
+.voice:hover .x, .voice:focus-within .x { display: grid; }
+.voice .x:hover { color: var(--fg); background: var(--panel-2); }
+.voice .x svg { width: 12px; height: 12px; }
+.voice.mine .hear { right: 27px; }
+.dialog.clone { gap: 12px; }
+#cloneDlg { width: min(560px, calc(100vw - 32px)); }
+.drop {
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; padding: 18px; border-radius: 12px;
+  border: 1.5px dashed var(--line-2); background: var(--bg-2);
+}
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop label.ghost { cursor: pointer; }
+.drop .muted { font-size: 12px; }
+.rec { display: inline-flex; align-items: center; gap: 8px; }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+.rec.on .rec-dot { animation: pulse 1s ease-in-out infinite; }
+.clone-clip { display: flex; flex-direction: column; gap: 4px; }
+.clone-clip audio { width: 100%; height: 36px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+#cloneText { min-height: 70px; flex: none; }
+@media (max-width: 520px) { .drop-hint { display: none; } }

@@ -180,6 +180,45 @@
   </form>
 </dialog>
 
+<!-- clone a voice from a recording -->
+<dialog id="cloneDlg" aria-labelledby="cloneTitle">
+  <form method="dialog" class="dialog clone">
+    <div class="dialog-head">
+      <h2 id="cloneTitle">Clone a voice</h2>
+      <button class="icon-btn" value="close" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <p class="help">Record or upload 3–15 seconds of one person speaking Nepali clearly, without music or other voices. Only clone your own voice, or one you have permission to use. The recording stays in this browser.</p>
+    <div class="drop" id="cloneDrop">
+      <button class="ghost rec" type="button" id="recBtn"><span class="rec-dot"></span><span id="recLabel">Record</span></button>
+      <span class="muted">or</span>
+      <label class="ghost">Choose a file<input type="file" id="cloneFile" accept="audio/*,video/*" hidden></label>
+      <span class="muted drop-hint">or drop one here</span>
+    </div>
+    <div class="clone-clip" id="cloneClip" hidden>
+      <audio id="cloneAudio" controls></audio>
+      <span class="hint" id="cloneInfo"></span>
+    </div>
+    <div class="field" id="cloneTextField" hidden>
+      <div class="label-row">
+        <label class="label" for="cloneText">What is said in the recording</label>
+        <button class="link" type="button" id="transcribeBtn">Transcribe automatically</button>
+      </div>
+      <textarea id="cloneText" lang="ne" rows="3" spellcheck="false" placeholder="Type exactly what is said, in Nepali"></textarea>
+      <p class="help" id="cloneTextHelp"></p>
+    </div>
+    <div class="field" id="cloneNameField" hidden>
+      <label class="label" for="cloneName">Name</label>
+      <input id="cloneName" autocomplete="off" maxlength="24">
+    </div>
+    <div class="bar-progress" id="cloneBar" hidden><div></div></div>
+    <p class="help" id="cloneStatus" role="status"></p>
+    <div class="dialog-actions">
+      <button class="ghost" value="close">Cancel</button>
+      <button class="primary slim" type="button" id="cloneSave" disabled>Save voice</button>
+    </div>
+  </form>
+</dialog>
+
 <div class="fatal" id="fatal" hidden></div>
 <script type="module" src="app/main.js"></script>
 </body>

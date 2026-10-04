@@ -59,7 +59,12 @@ def adapter_entry(name: str, path: str, size: int, cfg: dict) -> dict:
     # the file name in the browser cache must not collide across repos or revisions
     cache = f"adapter-{name}-{size}.safetensors"
     config = {"lora_alpha": cfg["lora_alpha"], "r": cfg["r"]}
-    return {"id": name, "label": label, "desc": desc, "adapter": {"path": path, "size": size, "cacheName": cache, "config": config}}
+    return {
+        "id": name,
+        "label": label,
+        "desc": desc,
+        "adapter": {"path": path, "size": size, "cacheName": cache, "config": config},
+    }
 
 
 def snapshot(src: str | None) -> str:
@@ -159,6 +164,85 @@ def build_decoder(src: str, out: str) -> None:
     save_file(t, out, metadata={"format": "pt", "omnivoice_web": "decoder"})
 
 
+def build_encoder(src: str, out: str) -> None:
+    """Encoder side of the codec, for voice cloning: HuBERT (semantic), its conv encoder, the DAC
+    encoder (acoustic), the fusing fc and the residual quantizer. Same conv layout as the decoder;
+    HuBERT's grouped positional conv has its weight norm folded and its groups' rows stacked."""
+    t: dict[str, torch.Tensor] = {}
+    with safe_open(src, "pt") as f:
+        g = lambda k: f.get_tensor(k).float()  # noqa: E731
+        h = "semantic_model."
+        for i in range(7):
+            t[f"hubert.conv.{i}.weight"] = conv_rows(g(f"{h}feature_extractor.conv_layers.{i}.conv.weight"))
+        t["hubert.gn.weight"] = g(h + "feature_extractor.conv_layers.0.layer_norm.weight")
+        t["hubert.gn.bias"] = g(h + "feature_extractor.conv_layers.0.layer_norm.bias")
+        for s in ("weight", "bias"):
+            t[f"hubert.fp_ln.{s}"] = g(f"{h}feature_projection.layer_norm.{s}")
+            t[f"hubert.fp.{s}"] = g(f"{h}feature_projection.projection.{s}")
+            t[f"hubert.ln.{s}"] = g(f"{h}encoder.layer_norm.{s}")
+        p = h + "encoder.pos_conv_embed.conv."
+        wg, wv = g(p + "parametrizations.weight.original0"), g(p + "parametrizations.weight.original1")
+        w = wg * wv / wv.norm(dim=(0, 1), keepdim=True)  # weight norm over dim 2
+        t["hubert.pos.weight"] = conv_rows(w)  # [768, 128 * 48], 16 groups of 48 rows
+        t["hubert.pos.bias"] = g(p + "bias")
+        for i in range(12):
+            p = f"{h}encoder.layers.{i}."
+            q = f"hubert.layers.{i}."
+            a = p + "attention."
+            t[q + "qkv.weight"] = torch.cat([g(a + f"{x}_proj.weight") for x in "qkv"])
+            t[q + "qkv.bias"] = torch.cat([g(a + f"{x}_proj.bias") for x in "qkv"])
+            for s in ("weight", "bias"):
+                t[q + f"out.{s}"] = g(a + f"out_proj.{s}")
+                t[q + f"ln.{s}"] = g(p + f"layer_norm.{s}")
+                t[q + f"ff1.{s}"] = g(p + f"feed_forward.intermediate_dense.{s}")
+                t[q + f"ff2.{s}"] = g(p + f"feed_forward.output_dense.{s}")
+                t[q + f"fln.{s}"] = g(p + f"final_layer_norm.{s}")
+        p = "encoder_semantic."
+        t["sem.conv.weight"] = conv_rows(g(p + "conv.weight"))
+        # strides [1, 1] and block_dilations [1, 1]: two blocks of two residual units and a conv
+        for b in range(2):
+            for u in range(2):
+                for c in ("conv1", "conv2"):
+                    t[f"sem.block.{b}.res{u}.{c}.weight"] = conv_rows(
+                        g(p + f"conv_blocks.{b}.res_units.{u}.{c}.weight")
+                    )
+            t[f"sem.block.{b}.down.weight"] = conv_rows(g(p + f"conv_blocks.{b}.conv.weight"))
+            t[f"sem.block.{b}.down.bias"] = g(p + f"conv_blocks.{b}.conv.bias")
+        d = "acoustic_encoder."
+        t["dac.conv1.weight"] = conv_rows(g(d + "conv1.weight"))
+        t["dac.conv1.bias"] = g(d + "conv1.bias")
+        for b in range(len(UPSAMPLE)):
+            p = f"{d}block.{b}."
+            q = f"dac.block.{b}."
+            for u in (1, 2, 3):
+                r, o = f"{p}res_unit{u}.", f"{q}res{u}."
+                t[o + "snake1.alpha"] = g(r + "snake1.alpha").flatten()
+                t[o + "conv1.weight"] = conv_rows(g(r + "conv1.weight"))
+                t[o + "conv1.bias"] = g(r + "conv1.bias")
+                t[o + "snake2.alpha"] = g(r + "snake2.alpha").flatten()
+                t[o + "conv2.weight"] = conv_rows(g(r + "conv2.weight"))
+                t[o + "conv2.bias"] = g(r + "conv2.bias")
+            t[q + "snake.alpha"] = g(p + "snake1.alpha").flatten()
+            t[q + "down.weight"] = conv_rows(g(p + "conv1.weight"))
+            t[q + "down.bias"] = g(p + "conv1.bias")
+        t["dac.snake.alpha"] = g(d + "snake1.alpha").flatten()
+        t["dac.conv2.weight"] = conv_rows(g(d + "conv2.weight"))
+        t["dac.conv2.bias"] = g(d + "conv2.bias")
+        t["fc.weight"], t["fc.bias"] = g("fc.weight"), g("fc.bias")
+        for c in range(8):
+            p = f"quantizer.quantizers.{c}."
+            t[f"rvq.{c}.in.weight"] = g(p + "project_in.weight")
+            t[f"rvq.{c}.in.bias"] = g(p + "project_in.bias")
+            t[f"rvq.{c}.embed"] = g(p + "codebook.embed")
+            t[f"rvq.{c}.out.weight"] = g(p + "project_out.weight")
+            t[f"rvq.{c}.out.bias"] = g(p + "project_out.bias")
+    # big matrices bf16 (the quantizer stays fp32: its nearest-code search runs on the CPU)
+    for k, v in t.items():
+        if v.dim() >= 2 and v.numel() > 4096 and not k.startswith("rvq."):
+            t[k] = v.to(torch.bfloat16)
+    save_file(t, out, metadata={"format": "pt", "omnivoice_web": "encoder"})
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--src", help="local OmniVoice snapshot (default: download the pinned revision)")
@@ -166,8 +250,15 @@ def main() -> None:
     ap.add_argument("--llm", nargs="+", default=["bf16", "int8", "w4a8"], choices=["bf16", "int8", "w4a8"])
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--force", action="store_true", help="rebuild files that already exist")
-    ap.add_argument("--adapter", action="append", metavar="NAME=PATH", help="local PEFT adapter, copied to adapters/NAME.safetensors")
-    ap.add_argument("--adapter-repo", metavar="REPO@REV", help="Hub repo with <name>.safetensors adapters (linked, not copied)")
+    ap.add_argument(
+        "--adapter",
+        action="append",
+        metavar="NAME=PATH",
+        help="local PEFT adapter, copied to adapters/NAME.safetensors",
+    )
+    ap.add_argument(
+        "--adapter-repo", metavar="REPO@REV", help="Hub repo with <name>.safetensors adapters (linked, not copied)"
+    )
     args = ap.parse_args()
 
     src = snapshot(args.src)
@@ -194,6 +285,14 @@ def main() -> None:
         print(f"building {name}", flush=True)
         build_decoder(os.path.join(src, "audio_tokenizer", "model.safetensors"), path)
     manifest["decoder"] = {"path": name, "size": os.path.getsize(path)}
+    print(f"  {name}: {fmt_size(os.path.getsize(path))}")
+
+    name = "higgs-encoder.safetensors"
+    path = os.path.join(out, name)
+    if args.force or not os.path.exists(path):
+        print(f"building {name}", flush=True)
+        build_encoder(os.path.join(src, "audio_tokenizer", "model.safetensors"), path)
+    manifest["encoder"] = {"path": name, "size": os.path.getsize(path)}
     print(f"  {name}: {fmt_size(os.path.getsize(path))}")
 
     for fn in ("tokenizer.json", "tokenizer_config.json"):

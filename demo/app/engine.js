@@ -62,6 +62,24 @@ class WorkerEngine {
     this.loaded = {};
     return this.call({ type: "unload" });
   }
+
+  loadCloning(base, manifest, part, { onStatus, signal, token } = {}) {
+    return this.call({ type: "loadCloning", base: base.href, manifest, part, token }, { onStatus, signal });
+  }
+
+  async prepareReference(samples, sr) {
+    const { wav, rms, seconds } = await this.call({ type: "prepareReference", samples, sr });
+    return { wav, rms, seconds };
+  }
+
+  async transcribe(wav) {
+    return (await this.call({ type: "transcribe", wav })).text;
+  }
+
+  async encodeReference(wav) {
+    const { tokens, frames } = await this.call({ type: "encodeReference", wav });
+    return { tokens, frames };
+  }
 }
 
 class LocalEngine {
@@ -77,6 +95,10 @@ class LocalEngine {
   load(base, manifest, selection, opts) { return this.pipe.load(base, manifest, selection, opts); }
   generate(opts) { return this.pipe.generate(opts); }
   unload() { this.pipe.unload(); }
+  loadCloning(base, manifest, part, opts) { return this.pipe.loadCloning(base, manifest, part, opts); }
+  async prepareReference(samples, sr) { return this.pipe.prepareReference(samples, sr); }
+  transcribe(wav) { return this.pipe.transcribe(wav); }
+  encodeReference(wav) { return this.pipe.encodeReference(wav); }
 }
 
 // inPage: force the in-page engine (debugging; ?engine=page)

@@ -70,7 +70,7 @@ def main() -> None:
                 with torch.inference_mode():
                     tokens = model._generate_iterative(task, cfg)[0]
                     wav = model.audio_tokenizer.decode(tokens.unsqueeze(0)).audio_values[0, 0].cpu().numpy()
-                path = os.path.join(out, "voices", f"_take.wav")
+                path = os.path.join(out, "voices", "_take.wav")
                 sf.write(path, wav, sr)
                 err = cer(text, asr.transcribe_array(wav, sr))
                 mos = scorer.utmos(path)
@@ -80,12 +80,20 @@ def main() -> None:
                     best = (key, text, tokens.cpu().numpy().astype(np.int32), wav)
         (err, neg_mos), text, tokens, wav = best
         sf.write(os.path.join(out, "voices", f"{vid}.wav"), wav, sr)
-        voices.append({
-            "id": vid, "label": label, "instruct": instruct, "text": text,
-            "frames": int(tokens.shape[1]), "tokens": tokens.flatten().tolist(),
-            "rms": float(np.sqrt(np.mean(wav**2))), "cer": err, "utmos": -neg_mos,
-            "preview": f"voices/{vid}.wav",
-        })
+        voices.append(
+            {
+                "id": vid,
+                "label": label,
+                "instruct": instruct,
+                "text": text,
+                "frames": int(tokens.shape[1]),
+                "tokens": tokens.flatten().tolist(),
+                "rms": float(np.sqrt(np.mean(wav**2))),
+                "cer": err,
+                "utmos": -neg_mos,
+                "preview": f"voices/{vid}.wav",
+            }
+        )
         print(f"-> {vid}: CER {err:.3f} UTMOS {-neg_mos:.2f}", flush=True)
     os.remove(os.path.join(out, "voices", "_take.wav"))
     with open(os.path.join(out, "voices.json"), "w", encoding="utf-8") as f:

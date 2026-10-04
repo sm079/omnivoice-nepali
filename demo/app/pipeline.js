@@ -10,9 +10,13 @@ import { TextTokenizer, estimateFrames, chunkText, addPunctuation } from "./text
 import { OmniLLM, CFG, ropeTable } from "./nn/llm.js";
 import { loadAdapter } from "./nn/lora.js";
 import { CodecDecoder, SAMPLE_RATE } from "./nn/codec.js";
-import { removeSilence, fadeAndPad, crossFade, peak } from "./audio.js";
+import { CodecEncoder } from "./nn/encoder.js";
+import { NepaliASR } from "./nn/asr.js";
+import { removeSilence, trimLongAudio, fadeAndPad, crossFade, peak, rms } from "./audio.js";
+import { resample } from "./resample.js";
 
 export { SAMPLE_RATE };
+const HOP = 960;
 const FRAME_RATE = 25;
 
 export const DEFAULTS = {
@@ -161,9 +165,60 @@ export class OmniVoicePipeline {
   }
 
   unload() {
-    this.unloadPart("llm");
-    this.unloadPart("decoder");
+    for (const k of ["llm", "decoder", "encoder", "asr"]) this.unloadPart(k);
     this.gpu?.pool.trim();
+  }
+
+  // ---------------------------------------------------------------- voice cloning
+
+  // Downloads (first time) and loads the codec encoder, or the speech recognizer (part "asr").
+  async loadCloning(baseUrl, manifest, part, { onStatus = () => {}, signal, token = "" } = {}) {
+    this.gpu ||= await GPU.create(this.gpuOptions);
+    if (this[part]) return;
+    const f = part === "asr" ? manifest.asr.int8 : manifest.encoder;
+    const url = new URL(f.path, baseUrl).href;
+    const headers = token && new URL(url).hostname === "huggingface.co" ? { Authorization: `Bearer ${token}` } : {};
+    const file = await cachedFile(url, f.path, f.size, (done) => onStatus({ phase: "download", file: f.path, done, total: f.size }), signal, headers);
+    const what = part === "asr" ? "speech recognizer" : "voice encoder";
+    onStatus({ phase: "load", what, frac: 0 });
+    const st = await SafeTensors.open(file);
+    if (part === "asr") {
+      const cfg = await (await fetch(new URL(manifest.asr.config, baseUrl), { headers })).json();
+      this.asr = await NepaliASR.load(this.gpu, st, cfg, (x) => onStatus({ phase: "load", what, frac: x }));
+    } else {
+      this.encoder = await CodecEncoder.load(this.gpu, st, (x) => onStatus({ phase: "load", what, frac: x }));
+    }
+    this.loaded[part] = f.path;
+    await this.gpu.sync();
+  }
+
+  // A reference recording made ready the way OmniVoice's create_voice_clone_prompt prepares one:
+  // mono 24 kHz, quiet recordings raised to RMS 0.1, cut to <= 15 s at a pause when longer than
+  // 20 s, long silences shortened, trimmed to whole codec frames.
+  prepareReference(samples, sr) {
+    let wav = resample(samples, sr, SAMPLE_RATE);
+    const r = rms(wav);
+    if (r > 0 && r < 0.1) wav = wav.map((v) => (v * 0.1) / r);
+    wav = trimLongAudio(wav, SAMPLE_RATE, { threshold: 20 });
+    wav = removeSilence(wav, SAMPLE_RATE, { midSil: 200, leadSil: 100, trailSil: 200 });
+    if (wav.length < HOP) throw new Error("The recording is silent or too short.");
+    wav = wav.subarray(0, wav.length - (wav.length % HOP));
+    return { wav: wav.slice(), rms: r, seconds: wav.length / SAMPLE_RATE };
+  }
+
+  async transcribe(wav24) {
+    return (await this.asr.transcribe(resample(wav24, SAMPLE_RATE, 16000))).text;
+  }
+
+  // prepared 24 kHz reference -> voice prompt tokens [8][T]
+  async encodeReference(wav24) {
+    try {
+      const { codes, T } = await this.encoder.encode(wav24);
+      return { tokens: codes, frames: T };
+    } finally {
+      await this.gpu.sync().catch(() => {});
+      this.gpu.pool.trim();
+    }
   }
 
   // The packed decoding problem for one item. voice: { tokens?: Int32Array [8][Tr], frames?, text?, instruct? }

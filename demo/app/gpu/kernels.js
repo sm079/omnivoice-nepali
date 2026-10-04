@@ -485,3 +485,200 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (i < P.n) { Y[P.dstOff + i] = A[P.srcOff + i]; }
 }`);
 
+
+// LayerNorm over rows of `cols` with weight and bias.
+export const layernormShader = () => memo("ln", () => /* wgsl */ `
+struct Params { rows: u32, cols: u32, nx: u32, eps: f32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read> X: array<f32>;
+@group(0) @binding(2) var<storage, read> Wt: array<f32>;
+@group(0) @binding(3) var<storage, read> Bs: array<f32>;
+@group(0) @binding(4) var<storage, read_write> Y: array<f32>;
+var<workgroup> red: array<f32, 256>;
+fn rsum(t: u32, v: f32) -> f32 {
+  red[t] = v; workgroupBarrier();
+  for (var s = 128u; s > 0u; s >>= 1u) { if (t < s) { red[t] = red[t] + red[t + s]; } workgroupBarrier(); }
+  let r = red[0]; workgroupBarrier(); return r;
+}
+@compute @workgroup_size(256)
+fn main(@builtin(local_invocation_index) t: u32, @builtin(workgroup_id) wg: vec3<u32>) {
+  let row = wg.y * P.nx + wg.x;
+  if (row >= P.rows) { return; }
+  let base = row * P.cols;
+  var s = 0.0;
+  for (var c = t; c < P.cols; c += 256u) { s += X[base + c]; }
+  let mean = rsum(t, s) / f32(P.cols);
+  var v = 0.0;
+  for (var c = t; c < P.cols; c += 256u) { let d = X[base + c] - mean; v += d * d; }
+  let r = inverseSqrt(rsum(t, v) / f32(P.cols) + P.eps);
+  for (var c = t; c < P.cols; c += 256u) { Y[base + c] = (X[base + c] - mean) * r * Wt[c] + Bs[c]; }
+}`);
+
+// GroupNorm with one group per channel on a time-major [T, C] signal (each column normalized
+// over time), affine, then GELU. One workgroup per channel.
+export const channelNormGeluShader = () => memo("cngelu", () => /* wgsl */ `
+struct Params { T: u32, C: u32, eps: f32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read_write> X: array<f32>;
+@group(0) @binding(2) var<storage, read> Wt: array<f32>;
+@group(0) @binding(3) var<storage, read> Bs: array<f32>;
+var<workgroup> red: array<f32, 256>;
+fn rsum(t: u32, v: f32) -> f32 {
+  red[t] = v; workgroupBarrier();
+  for (var s = 128u; s > 0u; s >>= 1u) { if (t < s) { red[t] = red[t] + red[t + s]; } workgroupBarrier(); }
+  let r = red[0]; workgroupBarrier(); return r;
+}
+fn erf_(x: f32) -> f32 {
+  let s = sign(x);
+  let a = abs(x);
+  let t = 1.0 / (1.0 + 0.3275911 * a);
+  let y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-a * a);
+  return s * y;
+}
+@compute @workgroup_size(256)
+fn main(@builtin(local_invocation_index) t: u32, @builtin(workgroup_id) wg: vec3<u32>) {
+  let c = wg.x;
+  var s = 0.0;
+  for (var i = t; i < P.T; i += 256u) { s += X[i * P.C + c]; }
+  let mean = rsum(t, s) / f32(P.T);
+  var v = 0.0;
+  for (var i = t; i < P.T; i += 256u) { let d = X[i * P.C + c] - mean; v += d * d; }
+  let r = inverseSqrt(rsum(t, v) / f32(P.T) + P.eps);
+  for (var i = t; i < P.T; i += 256u) {
+    let y = (X[i * P.C + c] - mean) * r * Wt[c] + Bs[c];
+    X[i * P.C + c] = 0.5 * y * (1.0 + erf_(y * 0.7071067811865476));
+  }
+}`);
+
+// Y += a * X over n elements
+export const axpyShader = () => memo("axpy", () => /* wgsl */ `
+struct Params { n: u32, nx: u32, a: f32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read> X: array<f32>;
+@group(0) @binding(2) var<storage, read_write> Y: array<f32>;
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.y * P.nx * 256u + gid.x;
+  if (i < P.n) { Y[i] = Y[i] + P.a * X[i]; }
+}`);
+
+// Y[r][dstOff + c] = X[r * srcLd + c] for c < cols (concatenating feature columns)
+export const copyColsShader = () => memo("copycols", () => /* wgsl */ `
+struct Params { rows: u32, cols: u32, srcLd: u32, dstLd: u32, dstOff: u32, nx: u32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read> X: array<f32>;
+@group(0) @binding(2) var<storage, read_write> Y: array<f32>;
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.y * P.nx * 256u + gid.x;
+  if (i >= P.rows * P.cols) { return; }
+  let r = i / P.cols;
+  let c = i % P.cols;
+  Y[r * P.dstLd + P.dstOff + c] = X[r * P.srcLd + c];
+}`);
+
+// 3x3 conv, stride 2, pad 1 on an NHWC image X[H][W][Cin] -> Y[Ho][Wo][C]: dw = depthwise
+// (Cin = C, one filter per channel), otherwise a single input channel. W: [C][9], + bias, opt. ReLU.
+export const conv3x3s2Shader = (dw, relu) => memo(`c3s2${dw}${relu}`, () => /* wgsl */ `
+struct Params { H: u32, W: u32, C: u32, Ho: u32, Wo: u32, nx: u32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read> X: array<f32>;
+@group(0) @binding(2) var<storage, read> Wt: array<f32>;
+@group(0) @binding(3) var<storage, read> Bs: array<f32>;
+@group(0) @binding(4) var<storage, read_write> Y: array<f32>;
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.y * P.nx * 256u + gid.x;
+  if (i >= P.Ho * P.Wo * P.C) { return; }
+  let c = i % P.C;
+  let x = (i / P.C) % P.Wo;
+  let y = i / (P.C * P.Wo);
+  var s = Bs[c];
+  for (var ky = 0u; ky < 3u; ky++) {
+    let iy = i32(2u * y + ky) - 1;
+    if (iy < 0 || iy >= i32(P.H)) { continue; }
+    for (var kx = 0u; kx < 3u; kx++) {
+      let ix = i32(2u * x + kx) - 1;
+      if (ix < 0 || ix >= i32(P.W)) { continue; }
+      let pix = u32(iy) * P.W + u32(ix);
+      s += Wt[c * 9u + ky * 3u + kx] * X[${dw ? "pix * P.C + c" : "pix"}];
+    }
+  }
+  Y[i] = ${relu ? "max(s, 0.0)" : "s"};
+}`);
+
+// Depthwise conv over time on X[T][C] (kernel k, "same" padding), + bias, then SiLU.
+export const dwConvSiluShader = () => memo("dwsilu", () => /* wgsl */ `
+struct Params { T: u32, C: u32, k: u32, nx: u32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read> X: array<f32>;
+@group(0) @binding(2) var<storage, read> Wt: array<f32>;
+@group(0) @binding(3) var<storage, read> Bs: array<f32>;
+@group(0) @binding(4) var<storage, read_write> Y: array<f32>;
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.y * P.nx * 256u + gid.x;
+  if (i >= P.T * P.C) { return; }
+  let c = i % P.C;
+  let t = i32(i / P.C);
+  let half = i32(P.k / 2u);
+  var s = Bs[c];
+  for (var j = 0; j < i32(P.k); j++) {
+    let tt = t + j - half;
+    if (tt >= 0 && tt < i32(P.T)) { s += Wt[c * P.k + u32(j)] * X[u32(tt) * P.C + c]; }
+  }
+  Y[i] = s / (1.0 + exp(-s));
+}`);
+
+// From a fused QKV buffer [T][3*D]: QU = q + u, QV = q + v (per-feature biases of length D).
+export const qBiasShader = () => memo("qbias", () => /* wgsl */ `
+struct Params { T: u32, D: u32, nx: u32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read> QKV: array<f32>;
+@group(0) @binding(2) var<storage, read> U: array<f32>;
+@group(0) @binding(3) var<storage, read> V: array<f32>;
+@group(0) @binding(4) var<storage, read_write> QU: array<f32>;
+@group(0) @binding(5) var<storage, read_write> QV: array<f32>;
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = gid.y * P.nx * 256u + gid.x;
+  if (i >= P.T * P.D) { return; }
+  let d = i % P.D;
+  let q = QKV[(i / P.D) * 3u * P.D + d];
+  QU[i] = q + U[d];
+  QV[i] = q + V[d];
+}`);
+
+// Relative-position attention scores (Transformer-XL / NeMo rel_shift), softmax in place on AC:
+//   S[h][i][j] = (AC[h][i][j] + BD[h][i][T - 1 - i + j]) * scale, BD: [H][T][2T - 1]
+export const relSoftmaxShader = () => memo("relsm", () => /* wgsl */ `
+struct Params { H: u32, T: u32, nx: u32, scale: f32 };
+@group(0) @binding(0) var<uniform> P: Params;
+@group(0) @binding(1) var<storage, read_write> AC: array<f32>;
+@group(0) @binding(2) var<storage, read> BD: array<f32>;
+var<workgroup> red: array<f32, 256>;
+@compute @workgroup_size(256)
+fn main(@builtin(local_invocation_index) t: u32, @builtin(workgroup_id) wg: vec3<u32>) {
+  let row = wg.y * P.nx + wg.x;  // h * T + i
+  if (row >= P.H * P.T) { return; }
+  let h = row / P.T;
+  let i = row % P.T;
+  let L2 = 2u * P.T - 1u;
+  let base = row * P.T;
+  let bdBase = (h * P.T + i) * L2 + (P.T - 1u - i);
+  var mx = -3.0e38;
+  for (var j = t; j < P.T; j += 256u) {
+    let s = (AC[base + j] + BD[bdBase + j]) * P.scale;
+    AC[base + j] = s;
+    mx = max(mx, s);
+  }
+  red[t] = mx; workgroupBarrier();
+  for (var s = 128u; s > 0u; s >>= 1u) { if (t < s) { red[t] = max(red[t], red[t + s]); } workgroupBarrier(); }
+  mx = red[0]; workgroupBarrier();
+  var sm = 0.0;
+  for (var j = t; j < P.T; j += 256u) { let e = exp(AC[base + j] - mx); AC[base + j] = e; sm += e; }
+  red[t] = sm; workgroupBarrier();
+  for (var s = 128u; s > 0u; s >>= 1u) { if (t < s) { red[t] = red[t] + red[t + s]; } workgroupBarrier(); }
+  let inv = 1.0 / red[0];
+  for (var j = t; j < P.T; j += 256u) { AC[base + j] = AC[base + j] * inv; }
+}`);

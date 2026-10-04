@@ -3,6 +3,7 @@ import { createEngine } from "./engine.js";
 import { listCached, clearCache } from "./store.js";
 import { estimateFrames } from "./text.js";
 import { encodeWav } from "./audio.js";
+import { saveVoiceClip, voiceClip, removeVoiceClip } from "./store.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -29,6 +30,7 @@ const QUALITY = [
 ];
 const VOICE_MODES = [
   { id: "preset", label: "Presets", tip: "Ready-made synthetic voices" },
+  { id: "mine", label: "Yours", tip: "Clone a voice from a recording" },
   { id: "design", label: "Describe", tip: "Describe a voice: gender, age, pitch" },
   { id: "auto", label: "Random", tip: "The model picks a voice (the seed decides which)" },
 ];
@@ -61,6 +63,7 @@ const ui = {
 };
 let manifest = null;
 let voices = [];
+let myVoices = []; // cloned: { id, label, text, frames, tokens: number[], rms }
 let engine = null;
 let phase = "starting"; // starting | welcome | loading | ready | busy
 let loadAbort = null;
@@ -174,11 +177,12 @@ let previewing = null;
 function renderVoices() {
   radioGroup($("voiceMode"), VOICE_MODES.filter((m) => m.id !== "preset" || voices.length), (m) => m.id === ui.voiceMode, (m) => { ui.voiceMode = m.id; saveUi(); renderControls(); });
   const el = $("voices");
-  el.hidden = ui.voiceMode !== "preset";
+  el.hidden = ui.voiceMode !== "preset" && ui.voiceMode !== "mine";
   $("design").hidden = ui.voiceMode !== "design";
   el.innerHTML = "";
+  if (ui.voiceMode === "mine") renderMyVoices(el);
   const sel = voiceById(ui.voice);
-  for (const v of voices) {
+  for (const v of ui.voiceMode === "preset" ? voices : []) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "voice";
@@ -208,9 +212,55 @@ function renderVoices() {
   const tuned = !!modelInfo(ui.model)?.adapter;
   $("voiceHelp").textContent = ui.voiceMode === "preset"
     ? "Synthetic voices, designed with OmniVoice. Every model speaks in the chosen voice."
+    : ui.voiceMode === "mine"
+      ? (myVoices.length ? "Voices you cloned. They're kept in this browser." : "Clone a voice from a short recording: yours, or one you have permission to use.")
     : ui.voiceMode === "design"
       ? (tuned ? "Voice descriptions work best with the Base model; the fine-tuned models were trained without them." : "The voice follows your description; the seed picks one such voice.")
       : "The model picks a voice. The same seed gives the same voice.";
+}
+
+function renderMyVoices(el) {
+  const sel = myVoices.find((v) => v.id === ui.myVoice) || myVoices[0];
+  for (const v of myVoices) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "voice mine";
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", String(v === sel));
+    b.innerHTML = `<b>${esc(v.label)}</b><small>${(v.frames / 25).toFixed(1)} s reference</small>`;
+    b.onclick = () => { ui.myVoice = v.id; saveUi(); renderControls(); };
+    const h = document.createElement("span");
+    h.className = "hear";
+    h.setAttribute("role", "button");
+    h.title = `Hear the recording of ${v.label}`;
+    h.innerHTML = previewing === v.id ? ICONS.pause : ICONS.play;
+    h.onclick = async (e) => {
+      e.stopPropagation();
+      if (previewing === v.id) { audioEl.pause(); return; }
+      const f = await voiceClip(v.id);
+      if (f) playUrl(URL.createObjectURL(f), v.id);
+    };
+    const x = document.createElement("span");
+    x.className = "x";
+    x.setAttribute("role", "button");
+    x.title = `Delete ${v.label}`;
+    x.innerHTML = ICONS.x;
+    x.onclick = (e) => {
+      e.stopPropagation();
+      myVoices = myVoices.filter((o) => o !== v);
+      store.set("myVoices", myVoices);
+      removeVoiceClip(v.id);
+      renderControls();
+    };
+    b.append(h, x);
+    el.append(b);
+  }
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "voice add";
+  add.textContent = "+ New voice";
+  add.onclick = openClone;
+  el.append(add);
 }
 
 function renderControls() {
@@ -284,6 +334,10 @@ function currentVoice() {
   if (ui.voiceMode === "preset" && voices.length) {
     const v = voiceById(ui.voice);
     return { kind: "preset", label: v.label, tokens: v.tokens, frames: v.frames, text: v.text, rms: v.rms };
+  }
+  if (ui.voiceMode === "mine") {
+    const v = myVoices.find((o) => o.id === ui.myVoice) || myVoices[0];
+    if (v) return { kind: "clone", label: v.label, tokens: v.tokens, frames: v.frames, text: v.text, rms: v.rms };
   }
   if (ui.voiceMode === "design") {
     const { gender, age, pitch } = ui.design;
@@ -511,7 +565,7 @@ async function runQueue() {
       setProgress(0, "Starting…");
       const res = await engine.generate({
         text: job.text,
-        voice: job.voice.kind === "preset" ? { tokens: job.voice.tokens, frames: job.voice.frames, text: job.voice.text, rms: job.voice.rms } : { instruct: job.voice.instruct },
+        voice: job.voice.tokens ? { tokens: Int32Array.from(job.voice.tokens), frames: job.voice.frames, text: job.voice.text, rms: job.voice.rms } : { instruct: job.voice.instruct },
         steps: job.steps, guidance: job.guidance, speed: job.speed, seed: job.seed,
         signal: running.abort.signal,
         onProgress: (p) => {
@@ -597,6 +651,7 @@ function reuse(clip) {
   store.set("text", clip.text);
   ui.model = clip.model;
   if (clip.voice.kind === "preset") { ui.voiceMode = "preset"; ui.voice = voices.find((v) => v.label === clip.voice.label)?.id || ui.voice; }
+  else if (clip.voice.kind === "clone") { ui.voiceMode = "mine"; ui.myVoice = myVoices.find((v) => v.label === clip.voice.label)?.id || ui.myVoice; }
   else ui.voiceMode = clip.voice.kind;
   ui.steps = clip.steps; ui.guidance = clip.guidance; ui.speed = clip.speed;
   $("seed").value = clip.seed;
@@ -724,6 +779,196 @@ async function openSettings() {
   $("settings").showModal();
 }
 
+// ------------------------------------------------------------------ voice cloning
+
+const clone = { wav: null, rms: 0, url: null, rec: null, busy: false };
+
+function cloneStatus(text, kind = "") {
+  $("cloneStatus").textContent = text;
+  $("cloneStatus").style.color = kind === "err" ? "var(--bad)" : kind === "ok" ? "var(--good)" : "";
+}
+
+function cloneProgress(frac) {
+  $("cloneBar").hidden = frac == null;
+  if (frac != null) $("cloneBar").firstElementChild.style.width = `${frac * 100}%`;
+}
+
+function cloneRender() {
+  const has = !!clone.wav;
+  $("cloneClip").hidden = !has;
+  $("cloneTextField").hidden = !has;
+  $("cloneNameField").hidden = !has;
+  const idle = !clone.busy && (phase === "ready" || phase === "welcome");
+  $("cloneSave").disabled = !has || !idle || !$("cloneText").value.trim() || !$("cloneName").value.trim();
+  $("transcribeBtn").disabled = !has || !idle;
+  $("recBtn").disabled = clone.busy;
+  const asr = manifest.asr?.int8;
+  $("transcribeBtn").hidden = !asr;
+  if (asr) $("transcribeBtn").textContent = cached.get(asr.path) !== asr.size ? `Transcribe automatically (${fmtGB(asr.size)} download)` : "Transcribe automatically";
+}
+
+function openClone() {
+  if (phase === "busy" || phase === "loading") { showError("Wait for the current clip to finish first."); return; }
+  Object.assign(clone, { wav: null, busy: false });
+  $("cloneText").value = "";
+  $("cloneName").value = `Voice ${myVoices.length + 1}`;
+  $("cloneTextHelp").textContent = "";
+  $("recLabel").textContent = "Record";
+  cloneStatus("");
+  cloneProgress(null);
+  cloneRender();
+  $("cloneDlg").showModal();
+}
+
+// Downloads (first time) and loads a cloning model, with progress shown in the dialog.
+async function cloneStep(part, label) {
+  await engine.loadCloning(BASE, manifest, part, {
+    token: store.get("hfToken", ""),
+    onStatus: (s) => {
+      if (s.phase === "download") { cloneStatus(`Downloading the ${label}… ${fmtGB(s.done)} of ${fmtGB(s.total)}`); cloneProgress(s.done / s.total); }
+      else if (s.phase === "load") { cloneStatus(`Loading the ${label}…`); cloneProgress(s.frac); }
+    },
+  });
+  await refreshCached();
+  cloneProgress(null);
+}
+
+async function useRecording(blob) {
+  clone.busy = true;
+  cloneRender();
+  cloneStatus("Reading the recording…");
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    ctx.close();
+    const mono = new Float32Array(buf.length);
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < d.length; i++) mono[i] += d[i] / buf.numberOfChannels;
+    }
+    const r = await engine.prepareReference(mono, buf.sampleRate);
+    Object.assign(clone, { wav: r.wav, rms: r.rms });
+    if (clone.url) URL.revokeObjectURL(clone.url);
+    clone.url = URL.createObjectURL(encodeWav(r.wav, 24000));
+    $("cloneAudio").src = clone.url;
+    const long = buf.duration > 20 ? ` (cut from ${Math.round(buf.duration)} s at a pause)` : "";
+    $("cloneInfo").textContent = `${r.seconds.toFixed(1)} s of speech after trimming silences${long}.${r.seconds < 3 ? " That's short: 3–10 s works best." : ""}`;
+    cloneStatus("");
+    clone.busy = false;
+    cloneRender();
+    const asr = manifest.asr?.int8;
+    if (asr && (cached.get(asr.path) === asr.size || store.get("autoTranscribe", false))) await transcribeClone();
+    else $("cloneTextHelp").textContent = "Type what is said, or let the browser transcribe it.";
+  } catch (e) {
+    console.error(e);
+    clone.busy = false;
+    cloneRender();
+    cloneStatus(e.name === "EncodingError" || /decod/i.test(e.message || "") ? "Couldn't read that file. Try a WAV, MP3, M4A or OGG recording." : friendlyError(e), "err");
+  }
+}
+
+async function transcribeClone() {
+  if (!clone.wav || clone.busy) return;
+  clone.busy = true;
+  cloneRender();
+  try {
+    await cloneStep("asr", "speech recognizer");
+    store.set("autoTranscribe", true);
+    cloneStatus("Transcribing…");
+    $("cloneText").value = await engine.transcribe(clone.wav);
+    $("cloneTextHelp").textContent = "Check the transcript and fix any mistakes: the closer it is to what's said, the better the clone.";
+    cloneStatus("");
+  } catch (e) {
+    console.error(e);
+    cloneStatus(friendlyError(e), "err");
+  } finally {
+    clone.busy = false;
+    cloneProgress(null);
+    cloneRender();
+  }
+}
+
+async function saveClone() {
+  clone.busy = true;
+  cloneRender();
+  try {
+    await cloneStep("encoder", "voice encoder");
+    cloneStatus("Learning the voice…");
+    const { tokens, frames } = await engine.encodeReference(clone.wav);
+    const v = {
+      id: `v${Date.now().toString(36)}`, label: $("cloneName").value.trim(), text: $("cloneText").value.trim(),
+      frames, tokens: Array.from(tokens), rms: clone.rms,
+    };
+    await saveVoiceClip(v.id, encodeWav(clone.wav, 24000)).catch(() => {});
+    myVoices.push(v);
+    store.set("myVoices", myVoices);
+    ui.voiceMode = "mine";
+    ui.myVoice = v.id;
+    saveUi();
+    $("cloneDlg").close();
+    renderControls();
+  } catch (e) {
+    console.error(e);
+    cloneStatus(friendlyError(e), "err");
+  } finally {
+    clone.busy = false;
+    cloneProgress(null);
+    cloneRender();
+  }
+}
+
+async function toggleRecording() {
+  if (clone.rec) { clone.rec.stop(); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
+  } catch {
+    cloneStatus("The browser couldn't use a microphone. Allow microphone access, or choose a file instead.", "err");
+    return;
+  }
+  const chunks = [];
+  const rec = new MediaRecorder(stream);
+  clone.rec = rec;
+  const t0 = Date.now();
+  const timer = setInterval(() => {
+    const s = (Date.now() - t0) / 1000;
+    $("recLabel").textContent = `Stop (${s.toFixed(0)} s)`;
+    if (s >= 20) rec.stop();
+  }, 250);
+  rec.ondataavailable = (e) => chunks.push(e.data);
+  rec.onstop = () => {
+    clearInterval(timer);
+    stream.getTracks().forEach((t) => t.stop());
+    clone.rec = null;
+    $("recBtn").classList.remove("on");
+    $("recLabel").textContent = "Record again";
+    useRecording(new Blob(chunks, { type: rec.mimeType }));
+  };
+  rec.start();
+  $("recBtn").classList.add("on");
+  $("recLabel").textContent = "Stop";
+  cloneStatus("Recording… speak naturally for 5–10 seconds.");
+}
+
+function setupClone() {
+  $("recBtn").onclick = toggleRecording;
+  $("cloneFile").onchange = () => { const f = $("cloneFile").files[0]; if (f) useRecording(f); $("cloneFile").value = ""; };
+  const drop = $("cloneDrop");
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    const f = e.dataTransfer.files[0];
+    if (f) useRecording(f);
+  };
+  $("transcribeBtn").onclick = transcribeClone;
+  $("cloneSave").onclick = saveClone;
+  $("cloneText").oninput = cloneRender;
+  $("cloneName").oninput = cloneRender;
+  $("cloneDlg").onclose = () => { clone.rec?.stop(); };
+}
+
 // ------------------------------------------------------------------ boot
 
 async function main() {
@@ -746,6 +991,8 @@ async function main() {
     if (res.ok) voices = (await res.json()).voices;
   } catch { /* no presets in this build */ }
   if (!voices.length && ui.voiceMode === "preset") ui.voiceMode = "auto";
+  myVoices = store.get("myVoices", []);
+  if (!manifest.encoder) VOICE_MODES.splice(VOICE_MODES.findIndex((m) => m.id === "mine"), 1);
   if (voices.length && !voices.some((v) => v.id === ui.voice)) ui.voice = voices[0].id;
   if (manifest.loraRepo) $("loraLink").href = manifest.loraRepo;
 
@@ -809,6 +1056,7 @@ async function main() {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !$("goBtn").disabled) $("goBtn").click();
   });
 
+  setupClone();
   engine = await createEngine({ inPage: params.get("engine") === "page" });
   await start();
 }

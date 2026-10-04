@@ -113,3 +113,31 @@ export async function clearCache() {
   const root = await navigator.storage.getDirectory();
   await root.removeEntry(DIR, { recursive: true });
 }
+
+// ------------------------------------------------------------------ recordings of cloned voices
+
+const VOICE_DIR = "omnivoice-voices";
+
+async function voiceDir() {
+  const root = await navigator.storage.getDirectory();
+  return root.getDirectoryHandle(VOICE_DIR, { create: true });
+}
+
+export async function saveVoiceClip(id, blob) {
+  const h = await (await voiceDir()).getFileHandle(id + ".wav", { create: true });
+  const w = await h.createWritable();
+  await w.write(blob);
+  await w.close();
+}
+
+export async function voiceClip(id) {
+  try {
+    return await (await (await voiceDir()).getFileHandle(id + ".wav")).getFile();
+  } catch {
+    return null;
+  }
+}
+
+export async function removeVoiceClip(id) {
+  try { await (await voiceDir()).removeEntry(id + ".wav"); } catch { /* already gone */ }
+}

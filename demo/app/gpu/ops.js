@@ -9,9 +9,10 @@ const mmParams = (o) => [
   ["u32", o.bBatch ?? 0], ["u32", o.bDiv ?? 1], ["u32", o.bOff ?? 0], ["u32", o.ldc ?? o.N],
   ["u32", o.cBatch ?? 0], ["u32", o.cOff ?? 0], ["u32", o.bz ?? 0], ["u32", o.cin ?? 0],
   ["u32", o.tin ?? 0], ["u32", o.stride ?? 1], ["u32", o.dil ?? 1], ["u32", o.pad ?? 0],
+  ["u32", o.zb ?? 0], ["u32", 0], ["u32", 0], ["u32", 0],
 ];
 
-export function matmul(gpu, { a = "rows", A, W, C, bias, act = "none", resid = false, snake, batch = 1, name, ...o }) {
+export function matmul(gpu, { a = "rows", A, W, C, bias, act = "none", resid = false, snake, pre, batch = 1, name, ...o }) {
   const b = W.kind;
   // big 128x128 tiles unless the problem is too small to fill them
   const R = o.M >= 256 && o.N >= 128 ? 8 : 4;
@@ -19,9 +20,10 @@ export function matmul(gpu, { a = "rows", A, W, C, bias, act = "none", resid = f
   // vec4 loads need whole 8-wide k chunks and 4-aligned offsets/strides
   const al = (...xs) => xs.every((x) => (x ?? 0) % 4 === 0);
   const k8 = o.K % 8 === 0;
-  const vecA = k8 && (a === "rows" ? al(o.lda ?? o.K, o.aOff, o.aBatch) : o.cin % 8 === 0 && al(o.aOff));
+  const vecA = k8 && (a === "rows" ? al(o.lda ?? o.K, o.aOff, o.aBatch) : o.cin % 8 === 0 && al(o.aOff, o.lda, o.aBatch));
+  pre = snake ? "snake" : pre || null;
   const vecB = k8 && (b === "bf16" || b === "i8" || (b === "f32" && al(o.ldb ?? o.K, o.bOff, o.bBatch)));
-  const code = K.matmulShader({ a, b, bias: !!bias, act, resid, R, vecA, vecB, snake: !!snake });
+  const code = K.matmulShader({ a, b, bias: !!bias, act, resid, R, vecA, vecB, pre });
   const bufs = [A, W.buf, C];
   if (b === "i8" || b === "w4") bufs.push(W.scale);
   if (b === "w4") bufs.push(W.srel, W.codebook);
@@ -49,7 +51,7 @@ export function linear(gpu, x, W, opts = {}) {
   let input = x;
   let tmp = null;
   if (needsRotation(W) && !opts.rotated) input = opts.xr || (tmp = rotate(gpu, x));
-  const swiglu = opts.act === "swiglu";
+  const swiglu = opts.act === "swiglu" || opts.act === "glu";
   const out = opts.out || gpu.empty([M, swiglu ? W.N / 2 : W.N]);
   matmul(gpu, {
     A: input, W, C: out, M, N: W.N, K: W.K, aOff: (opts.rowOff ?? 0) * W.K, ldc: swiglu ? W.N / 2 : W.N,
@@ -113,12 +115,18 @@ export function copy(gpu, src, dst, n, srcOff = 0, dstOff = 0) {
   gpu.dispatch(K.copyShader(), [src, dst], [["u32", n], ["u32", nx], ["u32", srcOff], ["u32", dstOff]], [nx, ny], { name: "copy" });
 }
 
-// 1D convolution over a time-major signal x [tin, cin] with weight W [cout, k*cin] (tap-major).
-// snake: per-channel Snake alphas applied to the input on load. into: accumulate (residual).
-export function conv1d(gpu, x, W, { tin, cin, k, stride = 1, dil = 1, pad, snake, into }) {
-  const tout = Math.floor((tin + 2 * pad - dil * (k - 1) - 1) / stride) + 1;
-  const out = into || gpu.empty([tout, W.N]);
-  matmul(gpu, { a: "conv", A: x, W, C: out, M: tout, N: W.N, K: k * cin, cin, tin, stride, dil, pad, bias: W.bias, snake, resid: !!into });
+// 1D convolution over a time-major signal x [tin, cin*groups] with weight W [cout, k*cin]
+// (tap-major; grouped: groups*[cout/groups, k*cin]). snake: per-channel Snake alphas applied to
+// the input on load; pre: "elu". into: accumulate (residual). tout: compute only that many frames.
+export function conv1d(gpu, x, W, { tin, cin, k, stride = 1, dil = 1, pad, snake, pre, into, groups = 1, act, tout, lda, alpha }) {
+  tout ??= Math.floor((tin + 2 * pad - dil * (k - 1) - 1) / stride) + 1;
+  const cout = W.N;
+  const out = into || gpu.empty([tout, cout]);
+  const g = cout / groups;
+  matmul(gpu, {
+    a: "conv", A: x, W, C: out, M: tout, N: g, K: k * cin, cin, lda: lda ?? cin * groups, alpha, tin, stride, dil, pad,
+    aBatch: cin, bz: g, zb: g, cBatch: g, ldc: cout, batch: groups, bias: W.bias, snake, pre, act, resid: !!into,
+  });
   return out;
 }
 
@@ -128,7 +136,7 @@ export function convT1d(gpu, x, W, { tin, cin, s, snake }) {
   const cout = W.N;
   const out = gpu.empty([tin * s, cout]);
   matmul(gpu, {
-    a: "convT", A: x, W, C: out, M: tin, N: cout, K: 2 * cin, cin, tin, stride: s, pad: Math.ceil(s / 2),
+    a: "convT", A: x, W, C: out, M: tin, N: cout, K: 2 * cin, cin, lda: cin, tin, stride: s, pad: Math.ceil(s / 2),
     bz: cout, ldc: s * cout, cBatch: cout, batch: s, bias: W.bias, snake,
   });
   return out;
@@ -151,4 +159,28 @@ export function mergeLora(gpu, W, A, B, r, scale) {
   const os = gpu.device.createBuffer({ size: Math.ceil((W.N * 4) / 16) * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpu.dispatch(K.mergeShader("w4"), [W.buf, A, B, W.scale, W.srel, W.codebook, out, os], params, [nx, ny], { name: "lora_merge" });
   return { ...W, kind: "i8", buf: out, scale: os, srel: null, codebook: null, codebookData: null, replaced: [W.buf, W.scale, W.srel, W.codebook] };
+}
+
+export function layernorm(gpu, x, w, b, cols, eps = 1e-5) {
+  const rows = x.size / cols;
+  const y = gpu.empty(x.shape);
+  const [nx, ny] = grid(rows);
+  gpu.dispatch(K.layernormShader(), [x, w, b, y], [["u32", rows], ["u32", cols], ["u32", nx], ["f32", eps]], [nx, ny], { name: "layernorm" });
+  return y;
+}
+
+// in place: per-channel GroupNorm over time + GELU on x [T, C]
+export function channelNormGelu(gpu, x, w, b, T, C, eps = 1e-5) {
+  gpu.dispatch(K.channelNormGeluShader(), [x, w, b], [["u32", T], ["u32", C], ["f32", eps]], [C], { name: "groupnorm_gelu" });
+}
+
+export function axpy(gpu, x, y, a = 1) {
+  const n = x.size;
+  const [nx, ny] = grid(Math.ceil(n / 256));
+  gpu.dispatch(K.axpyShader(), [x, y], [["u32", n], ["u32", nx], ["f32", a]], [nx, ny], { name: "axpy" });
+}
+
+export function copyCols(gpu, x, y, { rows, cols, srcLd = cols, dstLd, dstOff = 0 }) {
+  const [nx, ny] = grid(Math.ceil((rows * cols) / 256));
+  gpu.dispatch(K.copyColsShader(), [x, y], [["u32", rows], ["u32", cols], ["u32", srcLd], ["u32", dstLd], ["u32", dstOff], ["u32", nx]], [nx, ny], { name: "copy_cols" });
 }

@@ -15,7 +15,8 @@ build, the LoRA adapter merged the way the app merges it) on fixed inputs, and d
 
 Usage:
   python demo/tools/reference.py --precision int8 --out demo/out/dump_int8
-  python demo/tools/reference.py --precision int8 --adapter local/models/run2/adapter_model.safetensors --out demo/out/dump_int8_run2
+  python demo/tools/reference.py --precision int8 --out demo/out/dump_int8_run2 \
+      --adapter local/models/run2/adapter_model.safetensors
 """
 
 from __future__ import annotations
@@ -45,7 +46,18 @@ def web_state_dict(path: str, adapter: str | None, alpha_over_r: float) -> dict[
         keys = list(f.keys())
         bases = sorted({k[: -len("comfy_quant")] for k in keys if k.endswith("comfy_quant")})
         for b in bases:
-            t = {s: f.get_tensor(b + s) for s in ("weight", "weight_scale", "comfy_quant", "weight_s_rel", "weight_s_channel", "weight_codebook") if b + s in keys}
+            t = {
+                s: f.get_tensor(b + s)
+                for s in (
+                    "weight",
+                    "weight_scale",
+                    "comfy_quant",
+                    "weight_s_rel",
+                    "weight_s_channel",
+                    "weight_codebook",
+                )
+                if b + s in keys
+            }
             meta = json.loads(bytes(t["comfy_quant"].tolist()).decode())
             if b == "llm.embed_tokens.":
                 sd[b + "weight"] = t["weight"].float() * t["weight_scale"].float()
@@ -106,7 +118,9 @@ def main() -> None:
 
     snap = snapshot_download(src["repo"], revision=src["revision"])
     model = OmniVoice.from_pretrained(snap, train=True, dtype=torch.float32, attn_implementation="sdpa").to(dev).eval()
-    sd = web_state_dict(os.path.join(args.models, manifest["llm"][args.precision]["path"]), args.adapter, args.alpha_over_r)
+    sd = web_state_dict(
+        os.path.join(args.models, manifest["llm"][args.precision]["path"]), args.adapter, args.alpha_over_r
+    )
     missing, unexpected = model.load_state_dict(sd, strict=False)
     assert not unexpected, unexpected
     assert set(missing) <= {"codebook_layer_offsets"}, missing
@@ -123,7 +137,7 @@ def main() -> None:
     style_ids = tok(style, return_tensors="pt").input_ids[0].tolist()
     ids = inp["input_ids"].clone()
     c_len = ids.shape[2]
-    ids[0, :, c_len - T:] = state.to(ids.device)
+    ids[0, :, c_len - T :] = state.to(ids.device)
     batch_ids = torch.full((2, C, c_len), 1024, dtype=torch.long, device=dev)
     batch_mask = torch.zeros((2, c_len), dtype=torch.bool, device=dev)
     attn = torch.zeros((2, 1, c_len, c_len), dtype=torch.bool, device=dev)
@@ -138,7 +152,7 @@ def main() -> None:
     with torch.no_grad():
         emb = model._prepare_embed_inputs(batch_ids, batch_mask)
         hs = model.llm(inputs_embeds=emb, attention_mask=attn, return_dict=True)[0]
-        hidden = torch.cat([hs[0, c_len - T:], hs[1, :T]])
+        hidden = torch.cat([hs[0, c_len - T :], hs[1, :T]])
         logits = model.audio_heads(hidden)
         lc = logits[:T].view(T, C, 1025).permute(1, 0, 2).unsqueeze(0)
         lu = logits[T:].view(T, C, 1025).permute(1, 0, 2).unsqueeze(0)
@@ -150,8 +164,16 @@ def main() -> None:
         pred, score = model._predict_tokens_with_scoring(lc, lu, G)
     text_ids = tok(f"<|text_start|>{REF_TEXT} {TEXT}<|text_end|>", add_special_tokens=False).input_ids
     meta = {
-        "text": TEXT, "ref_text": REF_TEXT, "Tr": Tr, "T": T, "c_len": c_len, "style_ids": style_ids,
-        "text_ids": text_ids, "precision": args.precision, "adapter": args.adapter, "guidance": 2.0,
+        "text": TEXT,
+        "ref_text": REF_TEXT,
+        "Tr": Tr,
+        "T": T,
+        "c_len": c_len,
+        "style_ids": style_ids,
+        "text_ids": text_ids,
+        "precision": args.precision,
+        "adapter": args.adapter,
+        "guidance": 2.0,
     }
     assert len(style_ids) + len(text_ids) + Tr + T == c_len, (len(style_ids), len(text_ids), c_len)
     dump(args.out, "ref_tokens.i32", ref_tokens)
@@ -173,6 +195,36 @@ def main() -> None:
     dump(args.out, "codes.i32", codes)
     dump(args.out, "audio.f32", audio)
     meta["Tc"] = int(codes.shape[1])
+
+    # ---- codec encoder on real speech (a preset voice), as create_voice_clone_prompt feeds it
+    import soundfile as sf
+    import torch.nn.functional as F
+
+    speech, sr_in = sf.read(os.path.join(args.models, "voices", "asha.wav"), dtype="float32")
+    speech = torch.from_numpy(speech[: (len(speech) // 960) * 960])
+    with torch.no_grad():
+        x = speech.view(1, 1, -1).to(dev)
+        sem = codec.encoder_semantic(codec._extract_semantic_features(x).transpose(1, 2))
+        n = codec._get_conv1d_output_lengths(x.shape[2], codec.acoustic_encoder)
+        ac = codec.acoustic_encoder(F.pad(x, (codec.pad, codec.pad)) if n != sem.shape[2] else x)
+        emb = codec.fc(torch.cat([ac, sem], dim=1).transpose(1, 2))[0]
+        enc_codes = codec.encode(x).audio_codes[0]
+    dump(args.out, "enc_wav.f32", speech)
+    dump(args.out, "enc_emb.f32", emb)
+    dump(args.out, "enc_sem.f32", sem[0].T)
+    dump(args.out, "enc_ac.f32", ac[0].T)
+    with torch.no_grad():
+        feats = codec._extract_semantic_features(x)[0]
+    dump(args.out, "enc_hubert.f32", feats)
+    with torch.no_grad():
+        se = codec.encoder_semantic
+        h = se.conv(feats.T[None])
+        dump(args.out, "enc_s_conv.f32", h[0].T)
+        for u, unit in enumerate(se.conv_blocks[0].res_units):
+            h = unit(h)
+            dump(args.out, f"enc_s_res{u}.f32", h[0].T)
+    dump(args.out, "enc_codes.i32", enc_codes)
+    meta["enc_T"] = int(enc_codes.shape[1])
     json.dump(meta, open(os.path.join(args.out, "meta.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"wrote {args.out}: c_len {c_len}, T {T}, codes {tuple(codes.shape)}, audio {audio.numel()} samples")
 
