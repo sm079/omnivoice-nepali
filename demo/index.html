@@ -30,9 +30,9 @@
     <section class="group grow">
       <div class="label-row">
         <label for="text" class="label">What should it say?</label>
-        <span class="head-actions"><button class="link" id="exampleBtn" type="button">Example</button></span>
+        <span class="head-actions"><button class="pill" id="romanBtn" type="button" aria-pressed="true">abc → क</button><button class="link" id="exampleBtn" type="button">Example</button></span>
       </div>
-      <textarea id="text" lang="ne" spellcheck="false" placeholder="यहाँ नेपालीमा लेख्नुहोस्…"></textarea>
+      <textarea id="text" lang="ne" spellcheck="false" placeholder="यहाँ नेपालीमा लेख्नुहोस्… or type it romanized: namaste, mero naam…"></textarea>
       <span class="hint" id="textHint"></span>
     </section>
 
@@ -178,7 +178,7 @@
       <div><span class="label">Saved in this browser</span><p class="help" id="storageText"></p></div>
       <div class="storage-actions"><button class="ghost danger" type="button" id="clearBtn">Remove downloads</button></div>
     </div>
-    <p class="help">Models: <a href="https://huggingface.co/k2-fsa/OmniVoice" target="_blank" rel="noopener">OmniVoice by k2-fsa</a> (weights CC-BY-NC) and the <a id="loraLink" href="https://huggingface.co/sm079/omnivoice-nepali-lora" target="_blank" rel="noopener">Nepali LoRA adapters</a>. Preset voices are synthetic: designed with OmniVoice, not recorded from anyone.</p>
+    <p class="help">Models: <a href="https://huggingface.co/k2-fsa/OmniVoice" target="_blank" rel="noopener">OmniVoice by k2-fsa</a> (weights CC-BY-NC) and the <a id="loraLink" href="https://huggingface.co/sm079/omnivoice-nepali-lora" target="_blank" rel="noopener">Nepali LoRA adapters</a>. Preset voices are synthetic: designed with OmniVoice, not recorded from anyone. Romanized typing ranks words by counts from the <a href="https://wortschatz.uni-leipzig.de/" target="_blank" rel="noopener">Leipzig Corpora Collection</a> (Nepali news 2020, CC BY 4.0).</p>
   </form>
 </dialog>
 
@@ -203,7 +203,7 @@
     <div class="field" id="cloneTextField" hidden>
       <div class="label-row">
         <label class="label" for="cloneText">What is said in the recording</label>
-        <button class="link" type="button" id="transcribeBtn">Transcribe again</button>
+        <span class="head-actions"><button class="pill" id="cloneRomanBtn" type="button" aria-pressed="true">abc → क</button><button class="link" type="button" id="transcribeBtn">Transcribe again</button></span>
       </div>
       <textarea id="cloneText" lang="ne" rows="3" spellcheck="false" placeholder="Type exactly what is said, in Nepali"></textarea>
       <p class="help" id="cloneTextHelp"></p>

@@ -25,6 +25,7 @@ python demo/tools/build_assets.py --adapter run1=local/models/run1/adapter_model
   --adapter run2=local/models/run2/adapter_model.safetensors   # -> demo/models/
 python demo/tools/build_voices.py                              # synthetic preset voices
 uv run --with onnx python demo/tools/build_asr.py              # Nepali ASR for cloning (gated model)
+python demo/tools/build_translit.py --lexicon ../nepali-romanized/data/lexicon.tsv  # word list for romanized typing
 python demo/tools/serve.py --port 8090                          # http://127.0.0.1:8090/?models=./models/
 ```
 
@@ -49,6 +50,13 @@ python demo/tools/serve.py --port 8090                          # http://127.0.0
   Nepali ASR models compared in our dataset work, it was the most accurate (median CER 0.068 with CTC
   decoding vs 0.111 for the next Whisper fine-tune). It is MIT-licensed; downloading the original needs
   its terms accepted on Hugging Face.
+- **Romanized typing**: the text boxes accept Nepali typed in Latin letters (`mero naam` → मेरो नाम), converted
+  word by word as you type. It's a port of the nepali-romanized transliterator to
+  `app/translit.js`: spelling rules plus a 52k-word list with word-pair counts from the Leipzig Nepali news
+  corpus (CC BY 4.0, `translit/` next to the model files, ~0.9 MB compressed), which picks between readings
+  like पनि / पानी from the word before. Alt+1–6 or a click picks another reading, Esc keeps the Latin letters,
+  Backspace right after a conversion undoes it, `{text}` stays as typed, and the `abc → क` pill turns it off.
+  Without the word list it falls back to the rules alone.
 - **Laptops with two GPUs**: on Windows the browser picks the GPU itself (it ignores WebGPU's
   `powerPreference`), often the integrated one, which was about 3× slower here. Choosing "High performance"
   for the browser under Windows Settings → System → Display → Graphics makes it use the dedicated GPU.
