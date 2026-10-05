@@ -149,7 +149,9 @@ export function romanizedInput(ta, { toggle, baseUrl }) {
     const src = document.createElement("span");
     src.className = "ime-src";
     src.textContent = pending.word;
-    bar.append(src);
+    const opts = document.createElement("div");
+    opts.className = "ime-opts";
+    bar.append(src, opts);
     pending.options.forEach((o, k) => {
       const b = document.createElement("button");
       b.type = "button";
@@ -160,13 +162,13 @@ export function romanizedInput(ta, { toggle, baseUrl }) {
       b.innerHTML = `<small>${k + 1}</small>`;
       b.append(o);
       b.onclick = () => pick(o);
-      bar.append(b);
+      opts.append(b);
     });
     const keep = document.createElement("button");
     keep.type = "button";
     keep.className = "ime-keep";
-    keep.textContent = "Esc keep";
-    keep.title = "Keep these Latin letters as typed";
+    keep.textContent = "Esc";
+    keep.title = "Keep these Latin letters as typed (Esc)";
     keep.onclick = keepLatin;
     bar.append(keep);
   }

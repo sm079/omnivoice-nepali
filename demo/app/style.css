@@ -455,20 +455,24 @@ textarea { min-height: 190px; font-size: 15px; }
 .ime { position: relative; display: flex; flex-direction: column; flex: none; }
 .group.grow > .ime { flex: 1 1 auto; min-height: 0; }
 .ime > textarea { flex: 1 1 auto; }
-.ime.open > textarea { padding-bottom: 54px; }
+.ime.open > textarea { padding-bottom: 50px; }
 .ime-bar {
   position: absolute; left: 6px; right: 6px; bottom: 6px; display: flex; align-items: center; gap: 4px;
-  padding: 4px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel);
-  box-shadow: var(--shadow); overflow-x: auto; scrollbar-width: none;
+  padding: 4px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); box-shadow: var(--shadow);
 }
-.ime-bar::-webkit-scrollbar { display: none; }
-.ime-src { flex: none; padding: 0 6px; font: 12px ui-monospace, "Cascadia Code", Consolas, monospace; color: var(--faint); }
+.ime-src { flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px; font: 12px ui-monospace, "Cascadia Code", Consolas, monospace; color: var(--faint); }
+/* suggestions scroll sideways when they don't fit; the edge fades so the cut is visible */
+.ime-opts {
+  flex: 1 1 auto; min-width: 0; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none;
+  mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent);
+}
+.ime-opts::-webkit-scrollbar { display: none; }
 .ime-opt {
-  flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px 2px 5px;
-  border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--fg); font-size: 16px; line-height: 1.5;
+  flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px 1px 4px;
+  border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--fg); font-size: 15px; line-height: 1.5;
 }
 .ime-opt small { font-size: 10px; font-weight: 600; color: var(--faint); background: var(--bg-2); border-radius: 4px; padding: 1px 4px; line-height: 1.4; }
 .ime-opt:hover { border-color: var(--line-2); }
 .ime-opt[aria-pressed="true"] { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: var(--accent-soft); }
-.ime-keep { flex: none; margin-left: auto; padding: 3px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--faint); font-size: 11px; white-space: nowrap; }
-.ime-keep:hover { color: var(--fg); }
+.ime-keep { flex: none; padding: 3px 7px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--faint); font-size: 11px; white-space: nowrap; }
+.ime-keep:hover { color: var(--fg); border-color: var(--line-2); }
