@@ -453,7 +453,7 @@ textarea { min-height: 190px; font-size: 15px; }
 
 /* ------------------------------------------------------------------ romanized typing */
 .ime { position: relative; display: flex; flex-direction: column; flex: none; }
-.group.grow > .ime { flex: 1 1 auto; min-height: 0; }
+.group.grow > .ime { flex: 1 1 auto; }
 .ime > textarea { flex: 1 1 auto; }
 .ime.open > textarea { padding-bottom: 50px; }
 .ime-bar {
