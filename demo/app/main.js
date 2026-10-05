@@ -10,7 +10,7 @@ const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 // Where the converted model files live: web/ in the adapter repo, pinned to one commit because files
 // are cached by name in the browser. ?models=<url> overrides it (?models=./models/ for a local build).
-const MODELS_URL = "https://huggingface.co/sm079/omnivoice-nepali-lora/resolve/7f497881daa0a5cb5cffff0f30211321e46e6df6/web/";
+const MODELS_URL = "https://huggingface.co/sm079/omnivoice-nepali-lora/resolve/5aef826ead3104dae34eca942d0fcbd4b65b308c/web/";
 const BASE = new URL(params.get("models") || MODELS_URL, location.href);
 if (!BASE.pathname.endsWith("/")) BASE.pathname += "/";
 
