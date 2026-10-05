@@ -4,6 +4,7 @@ import { listCached, clearCache } from "./store.js";
 import { estimateFrames } from "./text.js";
 import { encodeWav } from "./audio.js";
 import { saveVoiceClip, voiceClip, removeVoiceClip } from "./store.js";
+import { romanizedInput } from "./ime.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -958,6 +959,7 @@ function setupClone() {
   $("cloneSave").onclick = saveClone;
   $("cloneText").oninput = cloneRender;
   $("cloneName").oninput = cloneRender;
+  romanizedInput($("cloneText"), { toggle: $("cloneRomanBtn"), baseUrl: BASE });
   $("cloneDlg").onclose = () => { clone.rec?.stop(); };
 }
 
@@ -990,6 +992,7 @@ async function main() {
 
   $("text").value = store.get("text", EXAMPLES[0]);
   $("text").oninput = () => { store.set("text", $("text").value); renderHint(); renderGo(); };
+  romanizedInput($("text"), { toggle: $("romanBtn"), baseUrl: BASE });
   $("exampleBtn").onclick = () => {
     exampleIdx = (exampleIdx + 1) % EXAMPLES.length;
     $("text").value = EXAMPLES[exampleIdx];
